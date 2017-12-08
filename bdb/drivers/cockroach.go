@@ -11,30 +11,29 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/pkg/errors"
 	"github.com/SpivEgin/sqlboiler/bdb"
-	"github.com/SpivEgin/sqlboiler/strmangle"
 )
 
-// PostgresDriver holds the database connection string and a handle
+// CockroachDriver holds the database connection string and a handle
 // to the database connection.
-type PostgresDriver struct {
+type CockroachDriver struct {
 	connStr string
 	dbConn  *sql.DB
 }
 
-// NewPostgresDriver takes the database connection details as parameters and
-// returns a pointer to a PostgresDriver object. Note that it is required to
-// call PostgresDriver.Open() and PostgresDriver.Close() to open and close
+// NewCockroachDriver takes the database connection details as parameters and
+// returns a pointer to a CockroachDriver object. Note that it is required to
+// call CockroachDriver.Open() and CockroachDriver.Close() to open and close
 // the database connection once an object has been obtained.
-func NewPostgresDriver(user, pass, dbname, host string, port int, sslmode, sslkey, sslcert, sslrootcert string) *PostgresDriver {
-	driver := PostgresDriver{
-		connStr: PostgresBuildQueryString(user, pass, dbname, host, port, sslmode, sslkey, sslcert, sslrootcert),
+func NewCockroachDriver(user, pass, dbname, host string, port int, sslmode, sslkey, sslcert, sslrootcert string) *CockroachDriver {
+	driver := CockroachDriver{
+		connStr: CockroachBuildQueryString(user, pass, dbname, host, port, sslmode, sslkey, sslcert, sslrootcert),
 	}
 
 	return &driver
 }
 
-// PostgresBuildQueryString builds a query string.
-func PostgresBuildQueryString(user, pass, dbname, host string, port int, sslmode, sslkey, sslcert, sslrootcert string ) string {
+// CockroachBuildQueryString builds a query string.
+func CockroachBuildQueryString(user, pass, dbname, host string, port int, sslmode, sslkey, sslcert, sslrootcert string) string {
 	parts := []string{}
 	if len(user) != 0 {
 		parts = append(parts, fmt.Sprintf("user=%s", user))
@@ -67,7 +66,7 @@ func PostgresBuildQueryString(user, pass, dbname, host string, port int, sslmode
 }
 
 // Open opens the database connection using the connection string
-func (p *PostgresDriver) Open() error {
+func (p *CockroachDriver) Open() error {
 	var err error
 	p.dbConn, err = sql.Open("postgres", p.connStr)
 	if err != nil {
@@ -78,40 +77,30 @@ func (p *PostgresDriver) Open() error {
 }
 
 // Close closes the database connection
-func (p *PostgresDriver) Close() {
+func (p *CockroachDriver) Close() {
 	p.dbConn.Close()
 }
 
 // UseLastInsertID returns false for postgres
-func (p *PostgresDriver) UseLastInsertID() bool {
+func (p *CockroachDriver) UseLastInsertID() bool {
 	return false
 }
 
 // UseTopClause returns false to indicate PSQL doesnt support SQL TOP clause
-func (m *PostgresDriver) UseTopClause() bool {
+func (m *CockroachDriver) UseTopClause() bool {
 	return false
 }
 
 // TableNames connects to the postgres database and
 // retrieves all table names from the information_schema where the
 // table schema is schema. It uses a whitelist and blacklist.
-func (p *PostgresDriver) TableNames(schema string, whitelist, blacklist []string) ([]string, error) {
+func (p *CockroachDriver) TableNames(schema string, whitelist, blacklist []string) ([]string, error) {
 	var names []string
-
-	query := fmt.Sprintf(`select table_name from information_schema.tables where table_schema = $1`)
-	args := []interface{}{schema}
 	if len(whitelist) > 0 {
-		query += fmt.Sprintf(" and table_name in (%s);", strmangle.Placeholders(true, len(whitelist), 2, 1))
-		for _, w := range whitelist {
-			args = append(args, w)
-		}
-	} else if len(blacklist) > 0 {
-		query += fmt.Sprintf(" and table_name not in (%s);", strmangle.Placeholders(true, len(blacklist), 2, 1))
-		for _, b := range blacklist {
-			args = append(args, b)
-		}
+		return whitelist, nil
 	}
-
+	query := fmt.Sprintf(`show tables from $1`)
+	args := []interface{}{schema}
 	rows, err := p.dbConn.Query(query, args...)
 
 	if err != nil {
@@ -128,84 +117,67 @@ func (p *PostgresDriver) TableNames(schema string, whitelist, blacklist []string
 	}
 
 	return names, nil
+
 }
 
 // Columns takes a table name and attempts to retrieve the table information
 // from the database information_schema.columns. It retrieves the column names
 // and column types and returns those as a []Column after TranslateColumnType()
 // converts the SQL types to Go types, for example: "varchar" to "string"
-func (p *PostgresDriver) Columns(schema, tableName string) ([]bdb.Column, error) {
+type tRowB struct {
+	Name  string
+	Unique bool
+
+}
+func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error) {
 	var columns []bdb.Column
-
+	var cols []tRowB
 	rows, err := p.dbConn.Query(`
-		select
-		c.column_name,
-		(
-			case when pgt.typtype = 'e'
-			then
-			(
-				select 'enum.' || c.udt_name || '(''' || string_agg(labels.label, ''',''') || ''')'
-				from (
-					select pg_enum.enumlabel as label
-					from pg_enum
-					where pg_enum.enumtypid =
-					(
-						select typelem
-						from pg_type
-						where pg_type.typtype = 'b' and pg_type.typname = ('_' || c.udt_name)
-						limit 1
-					)
-					order by pg_enum.enumsortorder
-				) as labels
-			)
-			else c.data_type
-			end
-		) as column_type,
-
-		c.udt_name,
-		e.data_type as array_type,
-		c.column_default,
-
-		c.is_nullable = 'YES' as is_nullable,
-		(select exists(
-			select 1
-			from information_schema.table_constraints tc
-			inner join information_schema.constraint_column_usage as ccu on tc.constraint_name = ccu.constraint_name
-			where tc.table_schema = $1 and tc.constraint_type = 'UNIQUE' and ccu.constraint_schema = $1 and ccu.table_name = c.table_name and ccu.column_name = c.column_name and
-				(select count(*) from information_schema.constraint_column_usage where constraint_schema = $1 and constraint_name = tc.constraint_name) = 1
-		)) OR
-		(select exists(
-			select 1
-			from pg_indexes pgix
-			inner join pg_class pgc on pgix.indexname = pgc.relname and pgc.relkind = 'i' and pgc.relnatts = 1
-			inner join pg_index pgi on pgi.indexrelid = pgc.oid
-			inner join pg_attribute pga on pga.attrelid = pgi.indrelid and pga.attnum = ANY(pgi.indkey)
-			where
-				pgix.schemaname = $1 and pgix.tablename = c.table_name and pga.attname = c.column_name and pgi.indisunique = true
-		)) as is_unique
-
-		from information_schema.columns as c
-		inner join pg_namespace as pgn on pgn.nspname = c.udt_schema
-		left join pg_type pgt on c.data_type = 'USER-DEFINED' and pgn.oid = pgt.typnamespace and c.udt_name = pgt.typname
-		left join information_schema.element_types e
-			on ((c.table_catalog, c.table_schema, c.table_name, 'TABLE', c.dtd_identifier)
-			= (e.object_catalog, e.object_schema, e.object_name, e.object_type, e.collection_type_identifier))
-		where c.table_name = $2 and c.table_schema = $1;
+select c.column_name as column_name, c.data_type as column_type, c.data_type as udt_name, c.is_nullable as is_nullable
+FROM information_schema.columns as c
+where c.table_schema = $1
+	and c.TABLE_NAME = $2
+;
+`, schema, tableName)
+	rowsB, err := p.dbConn.Query(`
+	SELECT st.column_name as "name", st.non_unique as "unique"  from INFORMATION_SCHEMA.statistics as st
+	where st.table_schema = $1
+		and st.TABLE_NAME = $2
+	;
 	`, schema, tableName)
 
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	defer rowsB.Close()
+
+	for rowsB.Next() {
+		var colName string
+		var unique bool
+		if err := rowsB.Scan(&colName, &unique); err != nil {
+			return nil, errors.Wrapf(err, "unable to scan for table %s", tableName)
+		}
+
+		col := tRowB{
+			Name:     colName,
+			Unique:   unique,
+		}
+		cols = append(cols, col)
+	}
 
 	for rows.Next() {
 		var colName, colType, udtName string
 		var defaultValue, arrayType *string
 		var nullable, unique bool
-		if err := rows.Scan(&colName, &colType, &udtName, &arrayType, &defaultValue, &nullable, &unique); err != nil {
+		if err := rows.Scan(&colName, &colType, &udtName, &arrayType, &defaultValue, &nullable); err != nil {
 			return nil, errors.Wrapf(err, "unable to scan for table %s", tableName)
 		}
-
+		for n := len(cols); n <= 0; n++ {
+			if cols[n].Name == colName && cols[n].Unique == false{
+				unique = true
+			}
+		}
 		column := bdb.Column{
 			Name:     colName,
 			DBType:   colType,
@@ -225,14 +197,15 @@ func (p *PostgresDriver) Columns(schema, tableName string) ([]bdb.Column, error)
 }
 
 // PrimaryKeyInfo looks up the primary key for a table.
-func (p *PostgresDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.PrimaryKey, error) {
+func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.PrimaryKey, error) {
 	pkey := &bdb.PrimaryKey{}
 	var err error
 
 	query := `
 	select tc.constraint_name
 	from information_schema.table_constraints as tc
-	where tc.table_name = $1 and tc.constraint_type = 'PRIMARY KEY' and tc.table_schema = $2;`
+	where tc.table_name = $1 and tc.constraint_type = 'PRIMARY KEY' and tc.table_schema = $2;
+	`
 
 	row := p.dbConn.QueryRow(query, tableName, schema)
 	if err = row.Scan(&pkey.Name); err != nil {
@@ -245,7 +218,8 @@ func (p *PostgresDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.PrimaryK
 	queryColumns := `
 	select kcu.column_name
 	from   information_schema.key_column_usage as kcu
-	where  constraint_name = $1 and table_schema = $2;`
+	where  constraint_name = $1 and table_schema = $2;
+	`
 
 	var rows *sql.Rows
 	if rows, err = p.dbConn.Query(queryColumns, pkey.Name, schema); err != nil {
@@ -275,24 +249,24 @@ func (p *PostgresDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.PrimaryK
 }
 
 // ForeignKeyInfo retrieves the foreign keys for a given table name.
-func (p *PostgresDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.ForeignKey, error) {
+func (p *CockroachDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.ForeignKey, error) {
 	var fkeys []bdb.ForeignKey
 
 	query := `
-	select
-		pgcon.conname,
-		pgc.relname as source_table,
-		pgasrc.attname as source_column,
-		dstlookupname.relname as dest_table,
-		pgadst.attname as dest_column
-	from pg_namespace pgn
-		inner join pg_class pgc on pgn.oid = pgc.relnamespace and pgc.relkind = 'r'
-		inner join pg_constraint pgcon on pgn.oid = pgcon.connamespace and pgc.oid = pgcon.conrelid
-		inner join pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid
-		inner join pg_attribute pgasrc on pgc.oid = pgasrc.attrelid and pgasrc.attnum = ANY(pgcon.conkey)
-		inner join pg_attribute pgadst on pgcon.confrelid = pgadst.attrelid and pgadst.attnum = ANY(pgcon.confkey)
-	where pgn.nspname = $2 and pgc.relname = $1 and pgcon.contype = 'f'
-	`
+select
+    pgcon.conname,
+    pgc.relname as source_table,
+    pgasrc.attname as source_column,
+    dstlookupname.relname as dest_table,
+    pgadst.attname as dest_column
+from pg_catalog.pg_namespace pgn
+    inner join pg_catalog.pg_class pgc on pgn.oid = pgc.relnamespace and pgc.relkind = 'r'
+    inner join pg_catalog.pg_constraint pgcon on pgn.oid = pgcon.connamespace and pgc.oid = pgcon.conrelid
+    inner join pg_catalog.pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid
+    inner join pg_catalog.pg_attribute pgasrc on pgc.oid = pgasrc.attrelid and pgasrc.attnum = ANY(pgcon.conkey)
+    inner join pg_catalog.pg_attribute pgadst on pgcon.confrelid = pgadst.attrelid and pgadst.attnum = ANY(pgcon.confkey)
+where pgn.nspname = $2 and pgc.relname = $1 and pgcon.contype = 'f'
+;`
 
 	var rows *sql.Rows
 	var err error
@@ -323,24 +297,24 @@ func (p *PostgresDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.Foreign
 // TranslateColumnType converts postgres database types to Go types, for example
 // "varchar" to "string" and "bigint" to "int64". It returns this parsed data
 // as a Column object.
-func (p *PostgresDriver) TranslateColumnType(c bdb.Column) bdb.Column {
+func (p *CockroachDriver) TranslateColumnType(c bdb.Column) bdb.Column {
 	if c.Nullable {
 		switch c.DBType {
-		case "bigint", "bigserial":
+		case "int", "serial", "INT", "SERIAL":
 			c.Type = "null.Int64"
-		case "integer", "serial":
+		case "int4", "INT4":
 			c.Type = "null.Int"
-		case "smallint", "smallserial":
+		case "int2", "INT2":
 			c.Type = "null.Int16"
-		case "decimal", "numeric", "double precision":
+		case "decimal", "DECIMAL":
 			c.Type = "null.Float64"
-		case "real":
-			c.Type = "null.Float32"
-		case "bit", "interval", "bit varying", "character", "money", "character varying", "cidr", "inet", "macaddr", "text", "uuid", "xml":
+		case "float", "real", "FLOAT", "REAL":
+			c.Type = "null.Float64"
+		case "timestamp", "interval", "collate", "string", "uuid", "array", "TIMESTAMP", "INTERVAL", "COLLATE", "STRING", "UUID":
 			c.Type = "null.String"
 		case `"char"`:
 			c.Type = "null.Byte"
-		case "bytea":
+		case "bytes":
 			c.Type = "null.Bytes"
 		case "json", "jsonb":
 			c.Type = "null.JSON"
@@ -410,18 +384,19 @@ func (p *PostgresDriver) TranslateColumnType(c bdb.Column) bdb.Column {
 	return c
 }
 
+// TODO: need to replace ArrayTypes for postgresql with Cockroach types
 // getArrayType returns the correct boil.Array type for each database type
-func getArrayType(c bdb.Column) string {
+func getCockroachArrayType(c bdb.Column) string {
 	switch *c.ArrType {
-	case "bigint", "bigserial", "integer", "serial", "smallint", "smallserial":
+	case "INI", "int":
 		return "types.Int64Array"
-	case "bytea":
+	case "BYTES", "bytes":
 		return "types.BytesArray"
-	case "bit", "interval", "uuint", "bit varying", "character", "money", "character varying", "cidr", "inet", "macaddr", "text", "uuid", "xml":
+	case "timestamp", "interval", "collate", "string", "uuid", "array", "TIMESTAMP", "INTERVAL", "COLLATE", "STRING", "UUID", "ARRAY":
 		return "types.StringArray"
-	case "boolean":
+	case "bool":
 		return "types.BoolArray"
-	case "decimal", "numeric", "double precision", "real":
+	case "decimal", "serial", "float", "DECIMAL", "SERIAL", "FLOAT":
 		return "types.Float64Array"
 	default:
 		return "types.StringArray"
@@ -429,16 +404,16 @@ func getArrayType(c bdb.Column) string {
 }
 
 // RightQuote is the quoting character for the right side of the identifier
-func (p *PostgresDriver) RightQuote() byte {
+func (p *CockroachDriver) RightQuote() byte {
 	return '"'
 }
 
 // LeftQuote is the quoting character for the left side of the identifier
-func (p *PostgresDriver) LeftQuote() byte {
+func (p *CockroachDriver) LeftQuote() byte {
 	return '"'
 }
 
 // IndexPlaceholders returns true to indicate PSQL supports indexed placeholders
-func (p *PostgresDriver) IndexPlaceholders() bool {
+func (p *CockroachDriver) IndexPlaceholders() bool {
 	return true
 }

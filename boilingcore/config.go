@@ -31,6 +31,10 @@ type PostgresConfig struct {
 	Port    int
 	DBName  string
 	SSLMode string
+	SSLKey string
+	SSLCert string
+	SSLRootCert string
+
 }
 
 // MySQLConfig configures a mysql database

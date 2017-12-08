@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/volatiletech/sqlboiler/boil"
+	"github.com/SpivEgin/sqlboiler/boil"
 )
 
 var testEagerCounters struct {

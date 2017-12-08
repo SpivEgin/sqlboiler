@@ -8,7 +8,7 @@ import (
 
 	_ "github.com/denisenkom/go-mssqldb"
 	"github.com/pkg/errors"
-	"github.com/volatiletech/sqlboiler/bdb"
+	"github.com/SpivEgin/sqlboiler/bdb"
 )
 
 // MSSQLDriver holds the database connection string and a handle

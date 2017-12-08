@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/volatiletech/sqlboiler/bdb"
-	"github.com/volatiletech/sqlboiler/bdb/drivers"
+	"github.com/SpivEgin/sqlboiler/bdb"
+	"github.com/SpivEgin/sqlboiler/bdb/drivers"
 )
 
 func TestTxtsFromOne(t *testing.T) {

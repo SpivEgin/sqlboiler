@@ -5,7 +5,7 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/volatiletech/sqlboiler/strmangle"
+	"github.com/SpivEgin/sqlboiler/strmangle"
 )
 
 // Interface for a database driver. Functionality required to support a specific

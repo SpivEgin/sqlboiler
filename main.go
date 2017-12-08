@@ -10,8 +10,8 @@ import (
 	"github.com/kat-co/vala"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/volatiletech/sqlboiler/bdb/drivers"
-	"github.com/volatiletech/sqlboiler/boilingcore"
+	"github.com/SpivEgin/sqlboiler/bdb/drivers"
+	"github.com/SpivEgin/sqlboiler/boilingcore"
 )
 
 const sqlBoilerVersion = "2.6.0"
@@ -62,7 +62,7 @@ func main() {
 		Use:   "sqlboiler [flags] <driver>",
 		Short: "SQL Boiler generates an ORM tailored to your database schema.",
 		Long: "SQL Boiler generates a Go ORM from template files, tailored to your database schema.\n" +
-			`Complete documentation is available at http://github.com/volatiletech/sqlboiler`,
+			`Complete documentation is available at http://github.com/SpivEgin/sqlboiler`,
 		Example:       `sqlboiler postgres`,
 		PreRunE:       preRun,
 		RunE:          run,
@@ -220,7 +220,48 @@ func preRun(cmd *cobra.Command, args []string) error {
 			return commandFailure(err.Error())
 		}
 	}
+	if driverName == "cockroach" {
+		cmdConfig.Postgres = boilingcore.PostgresConfig{
+			User:    viper.GetString("cockroach.user"),
+			Pass:    viper.GetString("cockroach.pass"),
+			Host:    viper.GetString("cockroach.host"),
+			Port:    viper.GetInt("cockroach.port"),
+			DBName:  viper.GetString("cockroach.dbname"),
+			SSLMode: viper.GetString("cockroach.sslmode"),
+			SSLCert: viper.GetString("cockroach.sslcert"),
+			SSLKey: viper.GetString("cockroach.sslkey"),
+			SSLRootCert: viper.GetString("cockroach.sslrootcert"),
+		}
 
+		// BUG: https://github.com/spf13/viper/issues/71
+		// Despite setting defaults, nested values don't get defaults
+		// Set them manually
+		if cmdConfig.Postgres.SSLMode == "" {
+			cmdConfig.Postgres.SSLMode = "require"
+			viper.Set("postgres.sslmode", cmdConfig.Postgres.SSLMode)
+		}
+
+		if cmdConfig.Postgres.Port == 0 {
+			cmdConfig.Postgres.Port = 26257
+			viper.Set("postgres.port", cmdConfig.Postgres.Port)
+		}
+
+		if len(cmdConfig.Schema) == 0 {
+			cmdConfig.Schema = "public"
+		}
+
+		err = vala.BeginValidation().Validate(
+			vala.StringNotEmpty(cmdConfig.Postgres.User, "postgres.user"),
+			vala.StringNotEmpty(cmdConfig.Postgres.Host, "postgres.host"),
+			vala.Not(vala.Equals(cmdConfig.Postgres.Port, 0, "postgres.port")),
+			vala.StringNotEmpty(cmdConfig.Postgres.DBName, "postgres.dbname"),
+			vala.StringNotEmpty(cmdConfig.Postgres.SSLMode, "postgres.sslmode"),
+		).Check()
+
+		if err != nil {
+			return commandFailure(err.Error())
+		}
+	}
 	if driverName == "mysql" {
 		cmdConfig.MySQL = boilingcore.MySQLConfig{
 			User:    viper.GetString("mysql.user"),

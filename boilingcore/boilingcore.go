@@ -13,10 +13,10 @@ import (
 	"text/template"
 
 	"github.com/pkg/errors"
-	"github.com/volatiletech/sqlboiler/bdb"
-	"github.com/volatiletech/sqlboiler/bdb/drivers"
-	"github.com/volatiletech/sqlboiler/queries"
-	"github.com/volatiletech/sqlboiler/strmangle"
+	"github.com/SpivEgin/sqlboiler/bdb"
+	"github.com/SpivEgin/sqlboiler/bdb/drivers"
+	"github.com/SpivEgin/sqlboiler/queries"
+	"github.com/SpivEgin/sqlboiler/strmangle"
 )
 
 const (
@@ -269,7 +269,7 @@ func (s *State) processReplacements() error {
 	return nil
 }
 
-var basePackage = "github.com/volatiletech/sqlboiler"
+var basePackage = "github.com/SpivEgin/sqlboiler"
 
 func getBasePath(baseDirConfig string) (string, error) {
 	if len(baseDirConfig) > 0 {
@@ -297,6 +297,9 @@ func (s *State) initDriver(driverName string) error {
 			s.Config.Postgres.Host,
 			s.Config.Postgres.Port,
 			s.Config.Postgres.SSLMode,
+			s.Config.Postgres.SSLKey,
+			s.Config.Postgres.SSLCert,
+			s.Config.Postgres.SSLRootCert,
 		)
 	case "mysql":
 		s.Driver = drivers.NewMySQLDriver(

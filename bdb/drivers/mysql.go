@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/pkg/errors"
-	"github.com/volatiletech/sqlboiler/bdb"
+	"github.com/SpivEgin/sqlboiler/bdb"
 )
 
 // TinyintAsBool is a global that is set from main.go if a user specifies
