@@ -289,6 +289,19 @@ func getBasePath(baseDirConfig string) (string, error) {
 func (s *State) initDriver(driverName string) error {
 	// Create a driver based off driver flag
 	switch driverName {
+	case "cockroach":
+		s.Driver = drivers.NewCockroachDriver(
+			s.Config.Postgres.User,
+			s.Config.Postgres.Pass,
+			s.Config.Postgres.DBName,
+			s.Config.Postgres.Host,
+			s.Config.Postgres.Port,
+			s.Config.Postgres.SSLMode,
+			s.Config.Postgres.SSLKey,
+			s.Config.Postgres.SSLCert,
+			s.Config.Postgres.SSLRootCert,
+		)
+
 	case "postgres":
 		s.Driver = drivers.NewPostgresDriver(
 			s.Config.Postgres.User,

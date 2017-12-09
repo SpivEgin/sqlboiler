@@ -251,11 +251,11 @@ func preRun(cmd *cobra.Command, args []string) error {
 		}
 
 		err = vala.BeginValidation().Validate(
-			vala.StringNotEmpty(cmdConfig.Postgres.User, "postgres.user"),
-			vala.StringNotEmpty(cmdConfig.Postgres.Host, "postgres.host"),
-			vala.Not(vala.Equals(cmdConfig.Postgres.Port, 0, "postgres.port")),
-			vala.StringNotEmpty(cmdConfig.Postgres.DBName, "postgres.dbname"),
-			vala.StringNotEmpty(cmdConfig.Postgres.SSLMode, "postgres.sslmode"),
+			vala.StringNotEmpty(cmdConfig.Postgres.User, "cockroach.user"),
+			vala.StringNotEmpty(cmdConfig.Postgres.Host, "cockroach.host"),
+			vala.Not(vala.Equals(cmdConfig.Postgres.Port, 0, "cockroach.port")),
+			vala.StringNotEmpty(cmdConfig.Postgres.DBName, "cockroach.dbname"),
+			vala.StringNotEmpty(cmdConfig.Postgres.SSLMode, "cockroach.sslmode"),
 		).Check()
 
 		if err != nil {

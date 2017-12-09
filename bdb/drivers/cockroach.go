@@ -176,6 +176,18 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 			log.Printf("Row error\n")
 			log.Fatal(err)
 		}
+		for rowsB.Next() {
+			var colName1 string
+			var unique1 bool
+			err := rowsB.Scan(&colName1, &unique1)
+			if err != nil {
+				log.Printf("RowB error\n")
+			}
+			if colName == colName1 {
+				unique = unique1
+			}
+		}
+
 		column := bdb.Column{
 			Name:     colName,
 			DBType:   colType,
