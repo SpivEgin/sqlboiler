@@ -10,3 +10,4 @@ glide.lock
 glide.yaml
 main.exe
 vendor/
+/models/

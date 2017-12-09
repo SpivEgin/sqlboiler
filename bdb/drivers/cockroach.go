@@ -8,8 +8,8 @@ import (
 
 	// Side-effect import sql driver
 
-	_ "github.com/lib/pq"
 	"github.com/SpivEgin/sqlboiler/bdb"
+	_ "github.com/lib/pq"
 	"log"
 )
 
@@ -19,6 +19,7 @@ type CockroachDriver struct {
 	connStr string
 	dbConn  *sql.DB
 }
+
 // NewCockroachDriver takes the database connection details as parameters and
 // returns a pointer to a CockroachDriver object. Note that it is required to
 // call CockroachDriver.Open() and CockroachDriver.Close() to open and close
@@ -101,7 +102,7 @@ func (p *CockroachDriver) TableNames(schema string, whitelist, blacklist []strin
 	if len(whitelist) > 0 {
 		return whitelist, nil
 	}
-	query := fmt.Sprintf(`select t.table_name from `+ schema +`.rveg_table as t;`)
+	query := fmt.Sprintf(`select t.table_name from ` + schema + `.rveg_table as t;`)
 
 	rows, err := p.dbConn.Query(query)
 
@@ -129,8 +130,6 @@ func (p *CockroachDriver) TableNames(schema string, whitelist, blacklist []strin
 func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error) {
 	var columns []bdb.Column
 
-
-
 	rows, err0 := p.dbConn.Query(`
 -- 	SET DATABASE "$1"
  	select x.column_name, x.column_type, x.column_default, x.udt_name, x.is_nullable, x.unique
@@ -145,7 +144,6 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
  	where x.table_name = $1
 	;
 	`, tableName)
-
 
 	if err0 != nil {
 		log.Printf("this is x %s \n", err0)
@@ -164,7 +162,7 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 		var unique *bool
 		err := rowsB.Scan(&colName, &unique)
 		if err != nil {
-		    log.Printf("RowB error\n")
+			log.Printf("RowB error\n")
 		}
 	}
 	for rows.Next() {
@@ -202,8 +200,6 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 
 		columns = append(columns, column)
 	}
-	log.Printf("\n#### Row ###\n")
-
 	return columns, nil
 }
 
@@ -215,12 +211,14 @@ func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.Primary
 	query := `
 	select tc.constraint_name
 	from information_schema.table_constraints as tc
-	where tc.table_name = $1 and tc.constraint_type = 'PRIMARY KEY' and tc.table_schema = $2;
+	where tc.table_name = $1 and tc.constraint_type ilike '%primary%' and tc.table_schema = $2;
 	`
 
 	row := p.dbConn.QueryRow(query, tableName, schema)
 	if err = row.Scan(&pkey.Name); err != nil {
 		if err == sql.ErrNoRows {
+			log.Printf("\n#### Primary Key ### \n %v \n", err)
+
 			return nil, nil
 		}
 		return nil, err
@@ -263,20 +261,20 @@ func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.Primary
 func (p *CockroachDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.ForeignKey, error) {
 	var fkeys []bdb.ForeignKey
 	query := `
-select
-    pgcon.conname,
-    pgc.relname as source_table,
-    pgasrc.attname as source_column,
-    dstlookupname.relname as dest_table,
-    pgadst.attname as dest_column
-from pg_catalog.pg_namespace pgn
-    inner join pg_catalog.pg_class pgc on pgn.oid = pgc.relnamespace and pgc.relkind = 'r'
-    inner join pg_catalog.pg_constraint pgcon on pgn.oid = pgcon.connamespace and pgc.oid = pgcon.conrelid
-    inner join pg_catalog.pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid
-    inner join pg_catalog.pg_attribute pgasrc on pgc.oid = pgasrc.attrelid and pgasrc.attnum = ANY(pgcon.conkey)
-    inner join pg_catalog.pg_attribute pgadst on pgcon.confrelid = pgadst.attrelid and pgadst.attnum = ANY(pgcon.confkey)
-where pgn.nspname = $2 and pgc.relname = $1 and pgcon.contype = 'f'
-;`
+	select
+		pgcon.conname,
+		pgc.relname as source_table,
+		pgasrc.attname as source_column,
+		dstlookupname.relname as dest_table,
+		pgadst.attname as dest_column
+	from pg_catalog.pg_namespace pgn
+		inner join pg_catalog.pg_class pgc on pgn.oid = pgc.relnamespace and pgc.relkind = 'r'
+		inner join pg_catalog.pg_constraint pgcon on pgn.oid = pgcon.connamespace and pgc.oid = pgcon.conrelid
+		inner join pg_catalog.pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid
+		inner join pg_catalog.pg_attribute pgasrc on pgc.oid = pgasrc.attrelid and pgasrc.attnum = ANY(pgcon.conkey)
+		inner join pg_catalog.pg_attribute pgadst on pgcon.confrelid = pgadst.attrelid and pgadst.attnum = ANY(pgcon.confkey)
+	where pgn.nspname = $2 and pgc.relname = $1 and pgcon.contype = 'f'
+	;`
 
 	var rows *sql.Rows
 	var err error
@@ -352,9 +350,11 @@ func (p *CockroachDriver) TranslateColumnType(c bdb.Column) bdb.Column {
 		}
 	} else {
 		switch c.DBType {
+		case "int", "serial", "INT", "SERIAL":
+			c.Type = "int64"
 		case "bigint", "bigserial":
 			c.Type = "int64"
-		case "integer", "serial":
+		case "integer":
 			c.Type = "int"
 		case "smallint", "smallserial":
 			c.Type = "int16"
@@ -404,7 +404,7 @@ func getCockroachArrayType(c bdb.Column) string {
 		return "types.BytesArray"
 	case "timestamp", "interval", "collate", "string", "uuid", "array", "TIMESTAMP", "INTERVAL", "COLLATE", "STRING", "UUID", "ARRAY":
 		return "types.StringArray"
-	case "bool":
+	case "bool", "BOOL":
 		return "types.BoolArray"
 	case "decimal", "serial", "float", "DECIMAL", "SERIAL", "FLOAT":
 		return "types.Float64Array"
@@ -427,16 +427,17 @@ func (p *CockroachDriver) LeftQuote() byte {
 func (p *CockroachDriver) IndexPlaceholders() bool {
 	return true
 }
+
 // This Creates 4 tables to conform the tables to sudo postgres fromat
-func conformCockroachDB(schema string) string  {
+func conformCockroachDB(schema string) string {
 	if len(schema) == 0 {
 		log.Panic("No database selected")
 	}
-	var x string = `drop table IF EXISTS `+ schema +`.rveg;
-	drop table IF EXISTS `+ schema +`.rveg_null;
-	drop TABLE IF EXISTS `+ schema +`.rveg_table;
-	drop table if EXISTS `+ schema +`.rveg_unique;
-	CREATE TABLE `+ schema +`.rveg (
+	var x string = `drop table IF EXISTS ` + schema + `.rveg;
+	drop table IF EXISTS ` + schema + `.rveg_null;
+	drop TABLE IF EXISTS ` + schema + `.rveg_table;
+	drop table if EXISTS ` + schema + `.rveg_unique;
+	CREATE TABLE ` + schema + `.rveg (
 	  column_name string,
 	  column_type string,
 	  column_default string,
@@ -446,20 +447,20 @@ func conformCockroachDB(schema string) string  {
 	  track_id int not null,
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
-	CREATE TABLE `+ schema +`.rveg_null (
+	CREATE TABLE ` + schema + `.rveg_null (
 	  COLUMN_NAME string,
 	  is_null string(3),
 	  track_id int not null,
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
-	CREATE TABLE `+ schema +`.rveg_table (
+	CREATE TABLE ` + schema + `.rveg_table (
 	  "table_schema" string,
 	  "table_name" string,
 	  "table_type" string,
 	  track_id int not null,
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
-	CREATE TABLE `+ schema +`.rveg_unique (
+	CREATE TABLE ` + schema + `.rveg_unique (
 	  "table_schema" string,
 	  "table_name" string,
 	  "column_name" string,
@@ -469,22 +470,22 @@ func conformCockroachDB(schema string) string  {
 	);
 	
 	
-	INSERT INTO `+ schema +`.rveg_table (table_schema, table_name, table_type, track_id)
+	INSERT INTO ` + schema + `.rveg_table (table_schema, table_name, table_type, track_id)
 	SELECT t.table_schema, t.table_name, t.table_type, row_number() OVER (ORDER by t.table_name) as track
 	FROM information_schema.tables as t
 	WHERE t.table_name not ilike 'rveg%' and  t.table_type = 'BASE TABLE' ;
 	
-	INSERT INTO `+ schema +`.rveg (column_name, column_type, column_default, udt_name, track_id)
+	INSERT INTO ` + schema + `.rveg (column_name, column_type, column_default, udt_name, track_id)
 	select c.column_name as column_name, c.data_type as column_type, c.column_default as column_default, c.data_type as udt_name, tbl.track_id as track_id
-	FROM information_schema.columns as c, `+ schema +`.rveg_table as tbl
+	FROM information_schema.columns as c, ` + schema + `.rveg_table as tbl
 	where c.table_name = tbl.table_name and c.table_schema = tbl.table_schema
 	;
-	INSERT INTO `+ schema +`.rveg_unique ("unique" , table_name, column_name, count_id, table_schema )
+	INSERT INTO ` + schema + `.rveg_unique ("unique" , table_name, column_name, count_id, table_schema )
 	select e.non_unique, e.table_name, e.column_name, row_number() OVER (ORDER by e.table_name) as count_id, e.table_schema
 	from information_schema.statistics as e
 	Where e.non_unique = false AND e.table_name not ilike 'rveg%';
 	
-	INSERT INTO `+ schema +`.rveg_null ( is_null, column_name, track_id )
+	INSERT INTO ` + schema + `.rveg_null ( is_null, column_name, track_id )
 	select c.is_nullable, c.column_name, t.track_id
 	from information_schema.columns as c, rveg_table as t
 	Where c.is_nullable = 'YES' AND c.table_name not ilike 'rveg%'
@@ -493,7 +494,7 @@ func conformCockroachDB(schema string) string  {
 	;
 	
 	
-	UPDATE `+ schema +`.rveg as rt
+	UPDATE ` + schema + `.rveg as rt
 	SET column_default = ' '
 	WHERE rt.column_default is null;
 
