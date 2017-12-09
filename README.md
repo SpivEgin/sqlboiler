@@ -263,10 +263,16 @@ not to pass them through the command line or environment variables:
 | no-auto-timestamps | false     |
 
 Example:
-
+  
 ```toml
 blacklist=["migrations", "other"]
 schema="myschema"
+[cockroach]
+    dbname="dbname"
+    host="localhost"
+    user="user"
+    port=26257
+    sslmode="disable"
 [postgres]
   dbname="dbname"
   host="localhost"
@@ -288,7 +294,20 @@ schema="myschema"
   pass="dbpassword"
   sslmode="disable"
 ```
-
+## Support for secure connection with cockroach
+Example:
+```TOML
+schema="myschema"
+[cockroach]
+    dbname="dbname"
+    host="localhost"
+    user="dbuser"
+    port=26257
+    sslmode: "verify-ca"
+    sslcert: "path/to/dbuser.crt"
+    sslkey: "path/to/dbuser.key"
+    sslrootcert: "path/to/ca.crt"
+```  
 #### Initial Generation
 
 After creating a configuration file that points at the database we want to

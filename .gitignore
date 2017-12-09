@@ -6,3 +6,7 @@ testschema.sql
 .cover
 /.idea/
 /sqlboiler.toml
+glide.lock
+glide.yaml
+main.exe
+vendor/
