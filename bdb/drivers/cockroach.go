@@ -9,8 +9,8 @@ import (
 	// Side-effect import sql driver
 
 	_ "github.com/lib/pq"
-	"github.com/pkg/errors"
 	"github.com/SpivEgin/sqlboiler/bdb"
+	"log"
 )
 
 // CockroachDriver holds the database connection string and a handle
@@ -19,7 +19,6 @@ type CockroachDriver struct {
 	connStr string
 	dbConn  *sql.DB
 }
-
 // NewCockroachDriver takes the database connection details as parameters and
 // returns a pointer to a CockroachDriver object. Note that it is required to
 // call CockroachDriver.Open() and CockroachDriver.Close() to open and close
@@ -96,12 +95,15 @@ func (m *CockroachDriver) UseTopClause() bool {
 // table schema is schema. It uses a whitelist and blacklist.
 func (p *CockroachDriver) TableNames(schema string, whitelist, blacklist []string) ([]string, error) {
 	var names []string
+	xt := conformCockroachDB(schema)
+	p.dbConn.Exec(xt)
+
 	if len(whitelist) > 0 {
 		return whitelist, nil
 	}
-	query := fmt.Sprintf(`show tables from $1`)
-	args := []interface{}{schema}
-	rows, err := p.dbConn.Query(query, args...)
+	query := fmt.Sprintf(`select t.table_name from `+ schema +`.rveg_table as t;`)
+
+	rows, err := p.dbConn.Query(query)
 
 	if err != nil {
 		return nil, err
@@ -124,59 +126,55 @@ func (p *CockroachDriver) TableNames(schema string, whitelist, blacklist []strin
 // from the database information_schema.columns. It retrieves the column names
 // and column types and returns those as a []Column after TranslateColumnType()
 // converts the SQL types to Go types, for example: "varchar" to "string"
-type tRowB struct {
-	Name  string
-	Unique bool
-
-}
 func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error) {
 	var columns []bdb.Column
-	var cols []tRowB
-	rows, err := p.dbConn.Query(`
-select c.column_name as column_name, c.data_type as column_type, c.data_type as udt_name, c.is_nullable as is_nullable
-FROM information_schema.columns as c
-where c.table_schema = $1
-	and c.TABLE_NAME = $2
-;
-`, schema, tableName)
-	rowsB, err := p.dbConn.Query(`
-	SELECT st.column_name as "name", st.non_unique as "unique"  from INFORMATION_SCHEMA.statistics as st
-	where st.table_schema = $1
-		and st.TABLE_NAME = $2
-	;
-	`, schema, tableName)
 
-	if err != nil {
-		return nil, err
+
+
+	rows, err0 := p.dbConn.Query(`
+-- 	SET DATABASE "$1"
+ 	select x.column_name, x.column_type, x.column_default, x.udt_name, x.is_nullable, x.unique
+ 	from rveg as x, rveg_table as t
+ 	where x.track_id = t.track_id and t.table_name = $1
+ 	;`, tableName)
+
+	rowsB, err1 := p.dbConn.Query(`
+-- 	SET DATABASE "$1"
+ 	select x.column_name, x.unique
+ 	from rveg_unique as x
+ 	where x.table_name = $1
+	;
+	`, tableName)
+
+
+	if err0 != nil {
+		log.Printf("this is x %s \n", err0)
+
+		return nil, err0
+	}
+	if err1 != nil {
+		log.Printf("this is x %s \n", err1)
+
 	}
 	defer rows.Close()
 	defer rowsB.Close()
 
 	for rowsB.Next() {
-		var colName string
-		var unique bool
-		if err := rowsB.Scan(&colName, &unique); err != nil {
-			return nil, errors.Wrapf(err, "unable to scan for table %s", tableName)
+		var colName *string
+		var unique *bool
+		err := rowsB.Scan(&colName, &unique)
+		if err != nil {
+		    log.Printf("RowB error\n")
 		}
-
-		col := tRowB{
-			Name:     colName,
-			Unique:   unique,
-		}
-		cols = append(cols, col)
 	}
-
 	for rows.Next() {
 		var colName, colType, udtName string
 		var defaultValue, arrayType *string
 		var nullable, unique bool
-		if err := rows.Scan(&colName, &colType, &udtName, &arrayType, &defaultValue, &nullable); err != nil {
-			return nil, errors.Wrapf(err, "unable to scan for table %s", tableName)
-		}
-		for n := len(cols); n <= 0; n++ {
-			if cols[n].Name == colName && cols[n].Unique == false{
-				unique = true
-			}
+		err := rows.Scan(&colName, &colType, &defaultValue, &udtName, &nullable, &unique)
+		if err != nil {
+			log.Printf("Row error\n")
+			log.Fatal(err)
 		}
 		column := bdb.Column{
 			Name:     colName,
@@ -192,6 +190,7 @@ where c.table_schema = $1
 
 		columns = append(columns, column)
 	}
+	log.Printf("\n#### Row ###\n")
 
 	return columns, nil
 }
@@ -251,7 +250,6 @@ func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.Primary
 // ForeignKeyInfo retrieves the foreign keys for a given table name.
 func (p *CockroachDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.ForeignKey, error) {
 	var fkeys []bdb.ForeignKey
-
 	query := `
 select
     pgcon.conname,
@@ -416,4 +414,80 @@ func (p *CockroachDriver) LeftQuote() byte {
 // IndexPlaceholders returns true to indicate PSQL supports indexed placeholders
 func (p *CockroachDriver) IndexPlaceholders() bool {
 	return true
+}
+// This Creates 4 tables to conform the tables to sudo postgres fromat
+func conformCockroachDB(schema string) string  {
+	if len(schema) == 0 {
+		log.Panic("No database selected")
+	}
+	var x string = `drop table IF EXISTS `+ schema +`.rveg;
+	drop table IF EXISTS `+ schema +`.rveg_null;
+	drop TABLE IF EXISTS `+ schema +`.rveg_table;
+	drop table if EXISTS `+ schema +`.rveg_unique;
+	CREATE TABLE `+ schema +`.rveg (
+	  column_name string,
+	  column_type string,
+	  column_default string,
+	  udt_name string,
+	  is_nullable bool,
+	  "unique" bool,
+	  track_id int not null,
+	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
+	);
+	CREATE TABLE `+ schema +`.rveg_null (
+	  COLUMN_NAME string,
+	  is_null string(3),
+	  track_id int not null,
+	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
+	);
+	CREATE TABLE `+ schema +`.rveg_table (
+	  "table_schema" string,
+	  "table_name" string,
+	  "table_type" string,
+	  track_id int not null,
+	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
+	);
+	CREATE TABLE `+ schema +`.rveg_unique (
+	  "table_schema" string,
+	  "table_name" string,
+	  "column_name" string,
+	  "unique" bool,
+	  count_id int not null,
+	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
+	);
+	
+	
+	INSERT INTO `+ schema +`.rveg_table (table_schema, table_name, table_type, track_id)
+	SELECT t.table_schema, t.table_name, t.table_type, row_number() OVER (ORDER by t.table_name) as track
+	FROM information_schema.tables as t
+	WHERE t.table_name not ilike 'rveg%' and  t.table_type = 'BASE TABLE' ;
+	
+	INSERT INTO `+ schema +`.rveg (column_name, column_type, column_default, udt_name, track_id)
+	select c.column_name as column_name, c.data_type as column_type, c.column_default as column_default, c.data_type as udt_name, tbl.track_id as track_id
+	FROM information_schema.columns as c, `+ schema +`.rveg_table as tbl
+	where c.table_name = tbl.table_name and c.table_schema = tbl.table_schema
+	;
+	INSERT INTO `+ schema +`.rveg_unique ("unique" , table_name, column_name, count_id, table_schema )
+	select e.non_unique, e.table_name, e.column_name, row_number() OVER (ORDER by e.table_name) as count_id, e.table_schema
+	from information_schema.statistics as e
+	Where e.non_unique = false AND e.table_name not ilike 'rveg%';
+	
+	INSERT INTO `+ schema +`.rveg_null ( is_null, column_name, track_id )
+	select c.is_nullable, c.column_name, t.track_id
+	from information_schema.columns as c, rveg_table as t
+	Where c.is_nullable = 'YES' AND c.table_name not ilike 'rveg%'
+	  AND t.TABLE_schema = c.table_schema
+	  AND t.TABLE_NAME = c.table_name
+	;
+	
+	
+	UPDATE `+ schema +`.rveg as rt
+	SET column_default = ' '
+	WHERE rt.column_default is null;
+
+	UPDATE tlmshop.rveg
+	SET is_nullable = TRUE, "unique" = FALSE;
+
+	`
+	return x
 }
