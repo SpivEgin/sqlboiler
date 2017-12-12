@@ -132,57 +132,55 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 
 	rows, err0 := p.dbConn.Query(`
 -- 	SET DATABASE "$1"
- 	select x.column_name, x.column_type, x.column_default, x.udt_name, x.is_nullable, x.unique
+ 	select x.column_name, x.column_type, x.column_default, x.udt_name, x.unique
  	from rveg as x, rveg_table as t
  	where x.track_id = t.track_id and t.table_name = $1
  	;`, tableName)
 
+
 	rowsB, err1 := p.dbConn.Query(`
 -- 	SET DATABASE "$1"
- 	select x.column_name, x.unique
+ 	select x.column_name, x.table_name
  	from rveg_unique as x
  	where x.table_name = $1
 	;
 	`, tableName)
 
+
 	if err0 != nil {
-		log.Printf("this is x %s \n", err0)
+		log.Printf("this is x0 %s \n", err0)
 
 		return nil, err0
 	}
 	if err1 != nil {
-		log.Printf("this is x %s \n", err1)
+		log.Printf("this is x1 %s \n", err1)
 
 	}
+
 	defer rows.Close()
 	defer rowsB.Close()
 
-	for rowsB.Next() {
-		var colName *string
-		var unique *bool
-		err := rowsB.Scan(&colName, &unique)
-		if err != nil {
-			log.Printf("RowB error\n")
-		}
-	}
 	for rows.Next() {
-		var colName, colType, udtName string
-		var defaultValue, arrayType *string
-		var nullable, unique bool
-		err := rows.Scan(&colName, &colType, &defaultValue, &udtName, &nullable, &unique)
+		var colName, colType, udtName, defaultValue  string
+		var arrayType *string
+		var unique bool
+		err := rows.Scan(&colName, &colType, &defaultValue, &udtName, &unique)
 		if err != nil {
 			log.Printf("Row error\n")
 			log.Fatal(err)
 		}
+		//cB := 0
 		for rowsB.Next() {
-			var colName1 string
-			var unique1 bool
-			err := rowsB.Scan(&colName1, &unique1)
+			var colName1, xTableName string
+			err := rowsB.Scan(&colName1, &xTableName)
+			//cB++
+			//log.Printf("Count %v\n", cB)
 			if err != nil {
-				log.Printf("RowB error\n")
+				//log.Printf("RowB error: %s\n", err)
 			}
-			if colName == colName1 {
-				unique = unique1
+			if colName == colName1 && tableName == xTableName {
+				unique = true
+				//log.Printf("This is unique %v\n", unique)
 			}
 		}
 
@@ -191,13 +189,15 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 			DBType:   colType,
 			ArrType:  arrayType,
 			UDTName:  udtName,
-			Nullable: nullable,
+			Nullable: true,
 			Unique:   unique,
 		}
-		if defaultValue != nil {
-			column.Default = *defaultValue
-		}
 
+		if len(defaultValue) > 1  {
+			//log.Printf("The DefaultValue is: %v\n", defaultValue)
+			column.Default = defaultValue
+			column.Nullable = false
+		}
 		columns = append(columns, column)
 	}
 	return columns, nil
@@ -433,34 +433,35 @@ func conformCockroachDB(schema string) string {
 	if len(schema) == 0 {
 		log.Panic("No database selected")
 	}
-	var x string = `drop table IF EXISTS ` + schema + `.rveg;
-	drop table IF EXISTS ` + schema + `.rveg_null;
-	drop TABLE IF EXISTS ` + schema + `.rveg_table;
-	drop table if EXISTS ` + schema + `.rveg_unique;
-	CREATE TABLE ` + schema + `.rveg (
+	var x = `
+	drop view if EXISTS `+ schema +`.rveg_is_null;
+	drop table IF EXISTS `+ schema +`.rveg;
+	drop table IF EXISTS `+ schema +`.rveg_null;
+	drop TABLE IF EXISTS `+ schema +`.rveg_table;
+	drop table if EXISTS `+ schema +`.rveg_unique;
+	CREATE TABLE `+ schema +`.rveg (
 	  column_name string,
 	  column_type string,
 	  column_default string,
 	  udt_name string,
-	  is_nullable bool,
 	  "unique" bool,
 	  track_id int not null,
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
-	CREATE TABLE ` + schema + `.rveg_null (
+	CREATE TABLE `+ schema +`.rveg_null (
 	  COLUMN_NAME string,
 	  is_null string(3),
 	  track_id int not null,
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
-	CREATE TABLE ` + schema + `.rveg_table (
+	CREATE TABLE `+ schema +`.rveg_table (
 	  "table_schema" string,
 	  "table_name" string,
 	  "table_type" string,
 	  track_id int not null,
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
-	CREATE TABLE ` + schema + `.rveg_unique (
+	CREATE TABLE `+ schema +`.rveg_unique (
 	  "table_schema" string,
 	  "table_name" string,
 	  "column_name" string,
@@ -470,23 +471,31 @@ func conformCockroachDB(schema string) string {
 	);
 	
 	
-	INSERT INTO ` + schema + `.rveg_table (table_schema, table_name, table_type, track_id)
+	INSERT INTO `+ schema +`.rveg_table (table_schema, table_name, table_type, track_id)
 	SELECT t.table_schema, t.table_name, t.table_type, row_number() OVER (ORDER by t.table_name) as track
 	FROM information_schema.tables as t
 	WHERE t.table_name not ilike 'rveg%' and  t.table_type = 'BASE TABLE' ;
 	
-	INSERT INTO ` + schema + `.rveg (column_name, column_type, column_default, udt_name, track_id)
+	INSERT INTO `+ schema +`.rveg (column_name, column_type, column_default, udt_name, track_id)
 	select c.column_name as column_name, c.data_type as column_type, c.column_default as column_default, c.data_type as udt_name, tbl.track_id as track_id
-	FROM information_schema.columns as c, ` + schema + `.rveg_table as tbl
+	FROM information_schema.columns as c, `+ schema +`.rveg_table as tbl
 	where c.table_name = tbl.table_name and c.table_schema = tbl.table_schema
 	;
-	INSERT INTO ` + schema + `.rveg_unique ("unique" , table_name, column_name, count_id, table_schema )
+	INSERT INTO `+ schema +`.rveg_unique ("unique" , table_name, column_name, count_id, table_schema )
 	select e.non_unique, e.table_name, e.column_name, row_number() OVER (ORDER by e.table_name) as count_id, e.table_schema
 	from information_schema.statistics as e
 	Where e.non_unique = false AND e.table_name not ilike 'rveg%';
 	
-	INSERT INTO ` + schema + `.rveg_null ( is_null, column_name, track_id )
+	INSERT INTO `+ schema +`.rveg_null ( is_null, column_name, track_id )
 	select c.is_nullable, c.column_name, t.track_id
+	from information_schema.columns as c, rveg_table as t
+	Where c.is_nullable = 'YES' AND c.table_name not ilike 'rveg%'
+	  AND t.TABLE_schema = c.table_schema
+	  AND t.TABLE_NAME = c.table_name
+	;
+	CREATE VIEW `+ schema +`.rveg_is_null
+	AS
+	select c.is_nullable, c.column_name, t.table_name, t.table_schema
 	from information_schema.columns as c, rveg_table as t
 	Where c.is_nullable = 'YES' AND c.table_name not ilike 'rveg%'
 	  AND t.TABLE_schema = c.table_schema
@@ -494,12 +503,12 @@ func conformCockroachDB(schema string) string {
 	;
 	
 	
-	UPDATE ` + schema + `.rveg as rt
+	UPDATE `+ schema +`.rveg as rt
 	SET column_default = ' '
 	WHERE rt.column_default is null;
-
-	UPDATE tlmshop.rveg
-	SET is_nullable = TRUE, "unique" = FALSE;
+	
+	UPDATE `+ schema +`.rveg
+	SET "unique" = FALSE
 
 	`
 	return x

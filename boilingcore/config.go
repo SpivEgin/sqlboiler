@@ -37,6 +37,20 @@ type PostgresConfig struct {
 
 }
 
+// CockroachConfig configures a postgres database
+type CockroachConfig struct {
+	User    string
+	Pass    string
+	Host    string
+	Port    int
+	DBName  string
+	SSLMode string
+	SSLKey 	string
+	SSLCert string
+	SSLRootCert string
+
+}
+
 // MySQLConfig configures a mysql database
 type MySQLConfig struct {
 	User    string

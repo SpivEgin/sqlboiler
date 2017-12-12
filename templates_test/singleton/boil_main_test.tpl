@@ -123,6 +123,15 @@ func validateConfig(driverName string) error {
 		).Check()
 	}
 
+	if driverName == "cockroach" {
+		return vala.BeginValidation().Validate(
+			vala.StringNotEmpty(viper.GetString("cockroach.user"), "cockroach.user"),
+			vala.StringNotEmpty(viper.GetString("cockroach.host"), "cockroach.host"),
+			vala.Not(vala.Equals(viper.GetInt("cockroach.port"), 0, "cockroach.port")),
+			vala.StringNotEmpty(viper.GetString("cockroach.dbname"), "cockroach.dbname"),
+			vala.StringNotEmpty(viper.GetString("cockroach.sslmode"), "cockroach.sslmode"),
+		).Check()
+	}
 	if driverName == "mysql" {
 		return vala.BeginValidation().Validate(
 			vala.StringNotEmpty(viper.GetString("mysql.user"), "mysql.user"),
