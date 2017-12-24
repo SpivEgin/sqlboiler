@@ -1,3 +1,8 @@
+/* TODO: Rewrite to fit cockroachDB replace pg_dumb with rveg to
+   TODO: allow for table information and the creation of temp Database
+*/
+
+
 type pgTester struct {
   dbConn *sql.DB
 
@@ -23,12 +28,12 @@ func init() {
 func (p *pgTester) setup() error {
   var err error
 
-  p.dbName = viper.GetString("postgres.dbname")
-  p.host = viper.GetString("postgres.host")
-  p.user = viper.GetString("postgres.user")
-  p.pass = viper.GetString("postgres.pass")
-  p.port = viper.GetInt("postgres.port")
-  p.sslmode = viper.GetString("postgres.sslmode")
+  p.dbName = viper.GetString("cockroach.dbname")
+  p.host = viper.GetString("cockroach.host")
+  p.user = viper.GetString("cockroach.user")
+  p.pass = viper.GetString("cockroach.pass")
+  p.port = viper.GetInt("cockroach.port")
+  p.sslmode = viper.GetString("cockroach.sslmode")
   // Create a randomized db name.
   p.testDBName = randomize.StableDBName(p.dbName)
 
@@ -162,7 +167,7 @@ func (p *pgTester) conn() (*sql.DB, error) {
   }
 
   var err error
-  p.dbConn, err = sql.Open("postgres", drivers.PostgresBuildQueryString(p.user, p.pass, p.testDBName, p.host, p.port, p.sslmode))
+  p.dbConn, err = sql.Open("postgres", drivers.CockroachBuildQueryString(p.user, p.pass, p.testDBName, p.host, p.port, p.sslmode))
   if err != nil {
     return nil, err
   }

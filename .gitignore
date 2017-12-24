@@ -11,3 +11,6 @@ glide.yaml
 main.exe
 vendor/
 /models/
+/.circleci/
+/.github/
+!/.idea/

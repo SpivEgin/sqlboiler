@@ -86,7 +86,7 @@ func init() {
 // for MS SQL: [schema_name].[table_name], versus
 // simply "table_name" for MySQL (because it does not support real schemas)
 func SchemaTable(lq, rq string, driver string, schema string, table string) string {
-	if (driver == "postgres" && schema != "public") || driver == "mssql" {
+	if (driver == "postgres" && schema != "public") || driver == "mssql" || driver == "cockroach"{
 		return fmt.Sprintf(`%s%s%s.%s%s%s`, lq, schema, rq, lq, table, rq)
 	}
 

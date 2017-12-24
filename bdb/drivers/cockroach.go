@@ -219,7 +219,7 @@ func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.Primary
 		if err == sql.ErrNoRows {
 			log.Printf("\n#### Primary Key ### \n %v \n", err)
 
-			return nil, nil
+			return nil, err
 		}
 		return nil, err
 	}
@@ -308,27 +308,25 @@ func (p *CockroachDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.Foreig
 func (p *CockroachDriver) TranslateColumnType(c bdb.Column) bdb.Column {
 	if c.Nullable {
 		switch c.DBType {
-		case "int", "serial", "INT", "SERIAL":
+		case "INT", "SERIAL":
 			c.Type = "null.Int64"
-		case "int4", "INT4":
+		case "INT4":
 			c.Type = "null.Int"
-		case "int2", "INT2":
+		case "INT2":
 			c.Type = "null.Int16"
-		case "decimal", "DECIMAL":
+		case "DECIMAL":
 			c.Type = "null.Float64"
-		case "float", "real", "FLOAT", "REAL":
+		case "FLOAT", "REAL":
 			c.Type = "null.Float64"
-		case "timestamp", "interval", "collate", "string", "uuid", "array", "TIMESTAMP", "INTERVAL", "COLLATE", "STRING", "UUID":
+		case "TIMESTAMP", "INTERVAL", "COLLATE", "STRING", "UUID":
 			c.Type = "null.String"
-		case `"char"`:
+		case "CHAR":
 			c.Type = "null.Byte"
-		case "bytes":
+		case "BYTES":
 			c.Type = "null.Bytes"
-		case "json", "jsonb":
-			c.Type = "null.JSON"
-		case "boolean":
+		case "BOOLEAN":
 			c.Type = "null.Bool"
-		case "date", "time", "timestamp without time zone", "timestamp with time zone":
+		case "DATE", "TIME", "TIMESTAMP WITHOUT TIME ZONE", "TIMESTAMP WITH TIME ZONE":
 			c.Type = "null.Time"
 		case "ARRAY":
 			if c.ArrType == nil {
@@ -350,42 +348,34 @@ func (p *CockroachDriver) TranslateColumnType(c bdb.Column) bdb.Column {
 		}
 	} else {
 		switch c.DBType {
-		case "int", "serial", "INT", "SERIAL":
+		case "INT", "SERIAL":
 			c.Type = "int64"
-		case "bigint", "bigserial":
+		case "BIGINT", "BIGSERIAL":
 			c.Type = "int64"
-		case "integer":
+		case "INTEGER":
 			c.Type = "int"
-		case "smallint", "smallserial":
+		case "SMALLINT", "SMALLSERIAL":
 			c.Type = "int16"
-		case "decimal", "numeric", "double precision":
+		case "DECIMAL", "NUMERIC", "DOUBLE PRECISION", "FLOAT":
 			c.Type = "float64"
-		case "real":
+		case "REAL":
 			c.Type = "float32"
-		case "bit", "interval", "uuint", "bit varying", "character", "money", "character varying", "cidr", "inet", "macaddr", "text", "uuid", "xml":
+		case "BIT", "INTERVAL", "UUINT", "BIT VARYING", "CHARACTER", "MONEY", "CHARACTER VARYING", "CIDR", "INET", "MACADDR", "TEXT", "UUID", "XML":
 			c.Type = "string"
-		case `"char"`:
+		case "CHAR":
 			c.Type = "types.Byte"
-		case "json", "jsonb":
+		case "JSON", "JSONB":
 			c.Type = "types.JSON"
-		case "bytea":
+		case "BYTEA":
 			c.Type = "[]byte"
-		case "boolean":
+		case "BOOLEAN":
 			c.Type = "bool"
-		case "date", "time", "timestamp without time zone", "timestamp with time zone":
+		case "DATE", "TIME", "TIMESTAMP WITHOUT TIME ZONE", "TIMESTAMP WITH TIME ZONE":
 			c.Type = "time.Time"
 		case "ARRAY":
 			c.Type = getArrayType(c)
 			// Make DBType something like ARRAYinteger for parsing with randomize.Struct
 			c.DBType = c.DBType + *c.ArrType
-		case "USER-DEFINED":
-			if c.UDTName == "hstore" {
-				c.Type = "types.HStore"
-				c.DBType = "hstore"
-			} else {
-				c.Type = "string"
-				fmt.Printf("Warning: Incompatible data type detected: %s\n", c.UDTName)
-			}
 		default:
 			c.Type = "string"
 		}
@@ -398,15 +388,15 @@ func (p *CockroachDriver) TranslateColumnType(c bdb.Column) bdb.Column {
 // getArrayType returns the correct boil.Array type for each database type
 func getCockroachArrayType(c bdb.Column) string {
 	switch *c.ArrType {
-	case "INI", "int":
+	case "INI":
 		return "types.Int64Array"
-	case "BYTES", "bytes":
+	case "BYTES":
 		return "types.BytesArray"
-	case "timestamp", "interval", "collate", "string", "uuid", "array", "TIMESTAMP", "INTERVAL", "COLLATE", "STRING", "UUID", "ARRAY":
+	case "TIMESTAMP", "INTERVAL", "COLLATE", "STRING", "UUID", "ARRAY":
 		return "types.StringArray"
-	case "bool", "BOOL":
+	case "BOOL":
 		return "types.BoolArray"
-	case "decimal", "serial", "float", "DECIMAL", "SERIAL", "FLOAT":
+	case "DECIMAL", "SERIAL", "FLOAT":
 		return "types.Float64Array"
 	default:
 		return "types.StringArray"
