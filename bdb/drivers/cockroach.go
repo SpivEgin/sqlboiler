@@ -3,7 +3,6 @@ package drivers
 import (
 	"database/sql"
 	"fmt"
-	"os"
 	"strings"
 
 	// Side-effect import sql driver
@@ -306,71 +305,42 @@ func (p *CockroachDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.Foreig
 // "varchar" to "string" and "bigint" to "int64". It returns this parsed data
 // as a Column object.
 func (p *CockroachDriver) TranslateColumnType(c bdb.Column) bdb.Column {
-	if c.Nullable {
-		switch c.DBType {
-		case "INT", "SERIAL":
-			c.Type = "null.Int64"
-		case "INT4":
-			c.Type = "null.Int"
-		case "INT2":
-			c.Type = "null.Int16"
-		case "DECIMAL":
-			c.Type = "null.Float64"
-		case "FLOAT", "REAL":
-			c.Type = "null.Float64"
-		case "TIMESTAMP", "INTERVAL", "COLLATE", "STRING", "UUID":
-			c.Type = "null.String"
-		case "CHAR":
-			c.Type = "null.Byte"
-		case "BYTES":
-			c.Type = "null.Bytes"
-		case "BOOLEAN":
-			c.Type = "null.Bool"
-		case "DATE", "TIME", "TIMESTAMP WITHOUT TIME ZONE", "TIMESTAMP WITH TIME ZONE":
-			c.Type = "null.Time"
-		case "ARRAY":
-			if c.ArrType == nil {
-				panic("unable to get postgres ARRAY underlying type")
-			}
-			c.Type = getArrayType(c)
-			// Make DBType something like ARRAYinteger for parsing with randomize.Struct
-			c.DBType = c.DBType + *c.ArrType
-		case "USER-DEFINED":
-			if c.UDTName == "hstore" {
-				c.Type = "types.HStore"
-				c.DBType = "hstore"
-			} else {
-				c.Type = "string"
-				fmt.Fprintf(os.Stderr, "Warning: Incompatible data type detected: %s\n", c.UDTName)
-			}
-		default:
-			c.Type = "null.String"
-		}
-	} else {
+	//if c.Nullable == true {
+	//	switch c.DBType {
+	//	case "INT", "SERIAL":
+	//		c.Type = "null.Int64"
+	//	case "DECIMAL", "FLOAT":
+	//		c.Type = "null.Float64"
+	//	case "INTERVAL", "STRING", "UUID", "COLLATE":
+	//		c.Type = "null.String"
+	//	case "BYTES":
+	//		c.Type = "null.Bytes"
+	//	case "BOOL":
+	//		c.Type = "null.Bool"
+	//	case "DATE", "TIMESTAMP":
+	//		c.Type = "null.Time"
+	//	case "ARRAY":
+	//		c.Type = getArrayType(c)
+	//		// Make DBType something like ARRAYinteger for parsing with randomize.Struct
+	//		c.DBType = c.DBType + *c.ArrType
+	//	default:
+	//		c.Type = "string"
+	//	}
+	//
+	//}
+	//if c.Nullable == true{
 		switch c.DBType {
 		case "INT", "SERIAL":
 			c.Type = "int64"
-		case "BIGINT", "BIGSERIAL":
-			c.Type = "int64"
-		case "INTEGER":
-			c.Type = "int"
-		case "SMALLINT", "SMALLSERIAL":
-			c.Type = "int16"
-		case "DECIMAL", "NUMERIC", "DOUBLE PRECISION", "FLOAT":
+		case "DECIMAL", "FLOAT":
 			c.Type = "float64"
-		case "REAL":
-			c.Type = "float32"
-		case "BIT", "INTERVAL", "UUINT", "BIT VARYING", "CHARACTER", "MONEY", "CHARACTER VARYING", "CIDR", "INET", "MACADDR", "TEXT", "UUID", "XML":
+		case "INTERVAL", "STRING", "UUID", "COLLATE":
 			c.Type = "string"
-		case "CHAR":
-			c.Type = "types.Byte"
-		case "JSON", "JSONB":
-			c.Type = "types.JSON"
-		case "BYTEA":
+		case "BYTES":
 			c.Type = "[]byte"
-		case "BOOLEAN":
+		case "BOOL":
 			c.Type = "bool"
-		case "DATE", "TIME", "TIMESTAMP WITHOUT TIME ZONE", "TIMESTAMP WITH TIME ZONE":
+		case "DATE", "TIMESTAMP":
 			c.Type = "time.Time"
 		case "ARRAY":
 			c.Type = getArrayType(c)
@@ -379,7 +349,7 @@ func (p *CockroachDriver) TranslateColumnType(c bdb.Column) bdb.Column {
 		default:
 			c.Type = "string"
 		}
-	}
+	//}
 
 	return c
 }
