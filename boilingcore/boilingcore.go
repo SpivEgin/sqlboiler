@@ -310,9 +310,6 @@ func (s *State) initDriver(driverName string) error {
 			s.Config.Postgres.Host,
 			s.Config.Postgres.Port,
 			s.Config.Postgres.SSLMode,
-			s.Config.Postgres.SSLKey,
-			s.Config.Postgres.SSLCert,
-			s.Config.Postgres.SSLRootCert,
 		)
 	case "mysql":
 		s.Driver = drivers.NewMySQLDriver(

@@ -8,6 +8,7 @@ import (
 	// Side-effect import sql driver
 
 	"github.com/SpivEgin/sqlboiler/bdb"
+	"github.com/SpivEgin/sqlboiler/strmangle"
 	_ "github.com/lib/pq"
 	"log"
 )
@@ -89,21 +90,39 @@ func (p *CockroachDriver) UseLastInsertID() bool {
 func (m *CockroachDriver) UseTopClause() bool {
 	return false
 }
+func PrintName(name string) {
+	//fmt.Printf("My Name is %v\n", name)
+}
 
 // TableNames connects to the postgres database and
 // retrieves all table names from the information_schema where the
 // table schema is schema. It uses a whitelist and blacklist.
 func (p *CockroachDriver) TableNames(schema string, whitelist, blacklist []string) ([]string, error) {
-	var names []string
+	PrintName("TableNames")
 	xt := conformCockroachDB(schema)
-	p.dbConn.Exec(xt)
-
-	if len(whitelist) > 0 {
-		return whitelist, nil
+	for i := 0; i <= 2; i++ {
+		p.dbConn.Exec(xt[i])
 	}
-	query := fmt.Sprintf(`select t.table_name from ` + schema + `.rveg_table as t;`)
+	var names []string
+	var q = `
+	select table_name from ` + schema + `.rveg_table
+		where table_schema = $1
+	`
+	query := fmt.Sprintf(q)
+	args := []interface{}{schema}
+	if len(whitelist) > 0 {
+		query += fmt.Sprintf(" and table_name in (%s);", strmangle.Placeholders(true, len(whitelist), 2, 1))
+		for _, w := range whitelist {
+			args = append(args, w)
+		}
+	} else if len(blacklist) > 0 {
+		query += fmt.Sprintf(" and table_name not in (%s);", strmangle.Placeholders(true, len(blacklist), 2, 1))
+		for _, b := range blacklist {
+			args = append(args, b)
+		}
+	}
 
-	rows, err := p.dbConn.Query(query)
+	rows, err := p.dbConn.Query(query, args...)
 
 	if err != nil {
 		return nil, err
@@ -120,6 +139,7 @@ func (p *CockroachDriver) TableNames(schema string, whitelist, blacklist []strin
 
 	return names, nil
 
+	return names, nil
 }
 
 // Columns takes a table name and attempts to retrieve the table information
@@ -127,6 +147,7 @@ func (p *CockroachDriver) TableNames(schema string, whitelist, blacklist []strin
 // and column types and returns those as a []Column after TranslateColumnType()
 // converts the SQL types to Go types, for example: "varchar" to "string"
 func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error) {
+	PrintName("Columns")
 	var columns []bdb.Column
 
 	rows, err0 := p.dbConn.Query(`
@@ -136,7 +157,6 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
  	where x.track_id = t.track_id and t.table_name = $1
  	;`, tableName)
 
-
 	rowsB, err1 := p.dbConn.Query(`
 -- 	SET DATABASE "$1"
  	select x.column_name, x.table_name
@@ -145,6 +165,13 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 	;
 	`, tableName)
 
+	rowsC, err2 := p.dbConn.Query(`
+-- 	SET DATABASE "$1"
+ 	select x.column_name, x.table_name, x.is_nullable
+ 	from rveg_is_null as x
+ 	where x.table_name = $1 and x.table_schema = $2
+	;
+	`, tableName, schema)
 
 	if err0 != nil {
 		log.Printf("this is x0 %s \n", err0)
@@ -155,19 +182,37 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 		log.Printf("this is x1 %s \n", err1)
 
 	}
+	if err2 != nil {
+		log.Printf("this is x2 %s \n", err1)
+
+	}
 
 	defer rows.Close()
 	defer rowsB.Close()
-
+	defer rowsC.Close()
+	var nullify bool
 	for rows.Next() {
-		var colName, colType, udtName, defaultValue  string
+		var colName, colType, udtName, defaultValue string
 		var arrayType *string
 		var unique bool
+
 		err := rows.Scan(&colName, &colType, &defaultValue, &udtName, &unique)
 		if err != nil {
 			log.Printf("Row error\n")
 			log.Fatal(err)
 		}
+		for rowsC.Next() {
+			var colName1, xTableName, isNullable string
+			err := rowsC.Scan(&colName1, &xTableName, &isNullable)
+			// todo: check with fresh eyes
+			if err != nil {
+				log.Printf("RowC error: %s\n", err)
+			}
+			if isNullable == "YES" && colName1 == colName{
+				nullify = true
+			}
+		}
+
 		//cB := 0
 		for rowsB.Next() {
 			var colName1, xTableName string
@@ -188,15 +233,10 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 			DBType:   colType,
 			ArrType:  arrayType,
 			UDTName:  udtName,
-			Nullable: true,
+			Nullable: nullify,
 			Unique:   unique,
 		}
-
-		if len(defaultValue) > 1  {
-			//log.Printf("The DefaultValue is: %v\n", defaultValue)
-			column.Default = defaultValue
-			column.Nullable = false
-		}
+		fmt.Printf("\n################ *** %v  *** ##################\n", nullify)
 		columns = append(columns, column)
 	}
 	return columns, nil
@@ -204,21 +244,23 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 
 // PrimaryKeyInfo looks up the primary key for a table.
 func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.PrimaryKey, error) {
+	PrintName("PrimaryKeyInfo")
 	pkey := &bdb.PrimaryKey{}
 	var err error
 
 	query := `
 	select tc.constraint_name
-	from information_schema.table_constraints as tc
-	where tc.table_name = $1 and tc.constraint_type ilike '%primary%' and tc.table_schema = $2;
+	from ` + schema + `.rveg_primary_keys as tc
+	where tc.table_name = $1 and tc.table_schema = $2
+	;
 	`
 
 	row := p.dbConn.QueryRow(query, tableName, schema)
-	if err = row.Scan(&pkey.Name); err != nil {
-		if err == sql.ErrNoRows {
-			log.Printf("\n#### Primary Key ### \n %v \n", err)
 
-			return nil, err
+	if err = row.Scan(&pkey.Name); err != nil {
+
+		if err == sql.ErrNoRows {
+			return nil, nil
 		}
 		return nil, err
 	}
@@ -226,15 +268,16 @@ func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.Primary
 	queryColumns := `
 	select kcu.column_name
 	from   information_schema.key_column_usage as kcu
-	where  constraint_name = $1 and table_schema = $2;
-	`
+	where  constraint_name = $1
+		and table_schema = $2
+	;`
 
 	var rows *sql.Rows
 	if rows, err = p.dbConn.Query(queryColumns, pkey.Name, schema); err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
+	var col = ""
 	var columns []string
 	for rows.Next() {
 		var column string
@@ -243,10 +286,21 @@ func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.Primary
 		if err != nil {
 			return nil, err
 		}
-
-		columns = append(columns, column)
+		if col == "" {
+			col = column
+		}
+		var xC int
+		if column == "id" {
+			xC++
+		}
+		if column != col {
+			if xC > 0 {
+				columns = append(columns, column)
+			}
+		}
+		col = column
 	}
-
+	columns = append(columns, col)
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
@@ -258,6 +312,7 @@ func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.Primary
 
 // ForeignKeyInfo retrieves the foreign keys for a given table name.
 func (p *CockroachDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.ForeignKey, error) {
+	PrintName("ForeignKeyInfo")
 	var fkeys []bdb.ForeignKey
 	query := `
 	select
@@ -266,13 +321,13 @@ func (p *CockroachDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.Foreig
 		pgasrc.attname as source_column,
 		dstlookupname.relname as dest_table,
 		pgadst.attname as dest_column
-	from pg_catalog.pg_namespace pgn
-		inner join pg_catalog.pg_class pgc on pgn.oid = pgc.relnamespace and pgc.relkind = 'r'
-		inner join pg_catalog.pg_constraint pgcon on pgn.oid = pgcon.connamespace and pgc.oid = pgcon.conrelid
-		inner join pg_catalog.pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid
-		inner join pg_catalog.pg_attribute pgasrc on pgc.oid = pgasrc.attrelid and pgasrc.attnum = ANY(pgcon.conkey)
-		inner join pg_catalog.pg_attribute pgadst on pgcon.confrelid = pgadst.attrelid and pgadst.attnum = ANY(pgcon.confkey)
-	where pgn.nspname = $2 and pgc.relname = $1 and pgcon.contype = 'f'
+	from pg_namespace pgn
+		inner join pg_class pgc on pgn.oid = pgc.relnamespace and pgc.relkind = 'r'
+		inner join pg_constraint pgcon on pgn.oid = pgcon.connamespace and pgc.oid = pgcon.conrelid
+		inner join pg_class dstlookupname on pgcon.confrelid = dstlookupname.oid
+		inner join pg_attribute pgasrc on pgc.oid = pgasrc.attrelid and pgasrc.attnum = ANY(pgcon.conkey)
+		inner join pg_attribute pgadst on pgcon.confrelid = pgadst.attrelid and pgadst.attnum = ANY(pgcon.confkey)
+	where pgn.nspname = $1 and pgc.relname = $2 and pgcon.contype = 'f'
 	;`
 
 	var rows *sql.Rows
@@ -305,30 +360,32 @@ func (p *CockroachDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.Foreig
 // "varchar" to "string" and "bigint" to "int64". It returns this parsed data
 // as a Column object.
 func (p *CockroachDriver) TranslateColumnType(c bdb.Column) bdb.Column {
-	//if c.Nullable == true {
-	//	switch c.DBType {
-	//	case "INT", "SERIAL":
-	//		c.Type = "null.Int64"
-	//	case "DECIMAL", "FLOAT":
-	//		c.Type = "null.Float64"
-	//	case "INTERVAL", "STRING", "UUID", "COLLATE":
-	//		c.Type = "null.String"
-	//	case "BYTES":
-	//		c.Type = "null.Bytes"
-	//	case "BOOL":
-	//		c.Type = "null.Bool"
-	//	case "DATE", "TIMESTAMP":
-	//		c.Type = "null.Time"
-	//	case "ARRAY":
-	//		c.Type = getArrayType(c)
-	//		// Make DBType something like ARRAYinteger for parsing with randomize.Struct
-	//		c.DBType = c.DBType + *c.ArrType
-	//	default:
-	//		c.Type = "string"
-	//	}
-	//
-	//}
-	//if c.Nullable == true{
+	PrintName("TranslateColumnType")
+
+	if c.Nullable == true {
+		switch c.DBType {
+		case "INT", "SERIAL":
+			c.Type = "null.Int64"
+		case "DECIMAL", "FLOAT":
+			c.Type = "null.Float64"
+		case "INTERVAL", "STRING", "UUID", "COLLATE":
+			c.Type = "null.String"
+		case "BYTES":
+			c.Type = "null.Bytes"
+		case "BOOL":
+			c.Type = "null.Bool"
+		case "DATE", "TIMESTAMP":
+			c.Type = "null.Time"
+		case "ARRAY":
+			c.Type = getCockroachArrayType(c)
+			// Make DBType something like ARRAYinteger for parsing with randomize.Struct
+			c.DBType = c.DBType + *c.ArrType
+		default:
+			c.Type = "string"
+		}
+
+	}
+	if c.Nullable == false {
 		switch c.DBType {
 		case "INT", "SERIAL":
 			c.Type = "int64"
@@ -343,19 +400,19 @@ func (p *CockroachDriver) TranslateColumnType(c bdb.Column) bdb.Column {
 		case "DATE", "TIMESTAMP":
 			c.Type = "time.Time"
 		case "ARRAY":
-			c.Type = getArrayType(c)
+			c.Type = getCockroachArrayType(c)
 			// Make DBType something like ARRAYinteger for parsing with randomize.Struct
 			c.DBType = c.DBType + *c.ArrType
 		default:
 			c.Type = "string"
 		}
-	//}
+	}
 
 	return c
 }
 
 // TODO: need to replace ArrayTypes for postgresql with Cockroach types
-// getArrayType returns the correct boil.Array type for each database type
+// getCockroachArrayType returns the correct boil.Array type for each database type
 func getCockroachArrayType(c bdb.Column) string {
 	switch *c.ArrType {
 	case "INI":
@@ -388,18 +445,23 @@ func (p *CockroachDriver) IndexPlaceholders() bool {
 	return true
 }
 
-// This Creates 4 tables to conform the tables to sudo postgres fromat
-func conformCockroachDB(schema string) string {
+// This Creates 4 tables and 2 views to conform the tables, for boiler
+func conformCockroachDB(schema string) []string {
+	PrintName("conformCockroachDB")
 	if len(schema) == 0 {
 		log.Panic("No database selected")
 	}
+	var xDrop = `
+	drop view if EXISTS ` + schema + `.rveg_is_null;
+	drop view if EXISTS ` + schema + `.rveg_primary_keys
+	drop table IF EXISTS ` + schema + `.rveg;
+	drop table IF EXISTS ` + schema + `.rveg_null;
+	drop TABLE IF EXISTS ` + schema + `.rveg_table;
+	drop table if EXISTS ` + schema + `.rveg_unique;
+
+`
 	var x = `
-	drop view if EXISTS `+ schema +`.rveg_is_null;
-	drop table IF EXISTS `+ schema +`.rveg;
-	drop table IF EXISTS `+ schema +`.rveg_null;
-	drop TABLE IF EXISTS `+ schema +`.rveg_table;
-	drop table if EXISTS `+ schema +`.rveg_unique;
-	CREATE TABLE `+ schema +`.rveg (
+	CREATE TABLE ` + schema + `.rveg (
 	  column_name string,
 	  column_type string,
 	  column_default string,
@@ -408,20 +470,20 @@ func conformCockroachDB(schema string) string {
 	  track_id int not null,
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
-	CREATE TABLE `+ schema +`.rveg_null (
+	CREATE TABLE ` + schema + `.rveg_null (
 	  COLUMN_NAME string,
 	  is_null string(3),
 	  track_id int not null,
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
-	CREATE TABLE `+ schema +`.rveg_table (
+	CREATE TABLE ` + schema + `.rveg_table (
 	  "table_schema" string,
 	  "table_name" string,
 	  "table_type" string,
 	  track_id int not null,
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
-	CREATE TABLE `+ schema +`.rveg_unique (
+	CREATE TABLE ` + schema + `.rveg_unique (
 	  "table_schema" string,
 	  "table_name" string,
 	  "column_name" string,
@@ -431,45 +493,59 @@ func conformCockroachDB(schema string) string {
 	);
 	
 	
-	INSERT INTO `+ schema +`.rveg_table (table_schema, table_name, table_type, track_id)
-	SELECT t.table_schema, t.table_name, t.table_type, row_number() OVER (ORDER by t.table_name) as track
+	INSERT INTO ` + schema + `.rveg_table (table_catalog, table_schema, table_name, version, table_type, track_id)
+	SELECT t.table_catalog, t.table_schema, t.table_name, t.table_type, t,version, row_number() OVER (ORDER by t.table_name) as track
 	FROM information_schema.tables as t
 	WHERE t.table_name not ilike 'rveg%' and  t.table_type = 'BASE TABLE' ;
 	
-	INSERT INTO `+ schema +`.rveg (column_name, column_type, column_default, udt_name, track_id)
+	INSERT INTO ` + schema + `.rveg (column_name, column_type, column_default, udt_name, track_id)
 	select c.column_name as column_name, c.data_type as column_type, c.column_default as column_default, c.data_type as udt_name, tbl.track_id as track_id
-	FROM information_schema.columns as c, `+ schema +`.rveg_table as tbl
+	FROM information_schema.columns as c, ` + schema + `.rveg_table as tbl
 	where c.table_name = tbl.table_name and c.table_schema = tbl.table_schema
 	;
-	INSERT INTO `+ schema +`.rveg_unique ("unique" , table_name, column_name, count_id, table_schema )
+	INSERT INTO ` + schema + `.rveg_unique ("unique" , table_name, column_name, count_id, table_schema )
 	select e.non_unique, e.table_name, e.column_name, row_number() OVER (ORDER by e.table_name) as count_id, e.table_schema
 	from information_schema.statistics as e
 	Where e.non_unique = false AND e.table_name not ilike 'rveg%';
 	
-	INSERT INTO `+ schema +`.rveg_null ( is_null, column_name, track_id )
+	INSERT INTO ` + schema + `.rveg_null ( is_null, column_name, track_id )
 	select c.is_nullable, c.column_name, t.track_id
 	from information_schema.columns as c, rveg_table as t
 	Where c.is_nullable = 'YES' AND c.table_name not ilike 'rveg%'
 	  AND t.TABLE_schema = c.table_schema
 	  AND t.TABLE_NAME = c.table_name
 	;
-	CREATE VIEW `+ schema +`.rveg_is_null
-	AS
-	select c.is_nullable, c.column_name, t.table_name, t.table_schema
-	from information_schema.columns as c, rveg_table as t
-	Where c.is_nullable = 'YES' AND c.table_name not ilike 'rveg%'
-	  AND t.TABLE_schema = c.table_schema
-	  AND t.TABLE_NAME = c.table_name
-	;
-	
-	
-	UPDATE `+ schema +`.rveg as rt
+	UPDATE ` + schema + `.rveg as rt
 	SET column_default = ' '
 	WHERE rt.column_default is null;
 	
-	UPDATE `+ schema +`.rveg
+	UPDATE ` + schema + `.rveg
 	SET "unique" = FALSE
+	`
+	var x1 = `
+		CREATE VIEW ` + schema + `.rveg_is_null
+	AS
+	select c.is_nullable, c.column_name, t.table_name, t.table_schema
+	from information_schema.columns as c, rveg_table as t
+	Where c.table_name not ilike 'rveg%'
+	  AND t.TABLE_schema = c.table_schema
+	  AND t.TABLE_NAME = c.table_name
+	;
+	CREATE VIEW ` + schema + `.rveg_primary_keys
+	AS
+	select k.constraint_name, k.table_catalog, k.table_name, k.column_name, k.ordinal_position, k.table_schema
+	from   information_schema.key_column_usage as k
+	WHERE k.constraint_name ilike '%primary%'
+		  or k.constraint_name ilike '%pkey%'
+	;
 
 	`
-	return x
+	xSQL := make([]string, 3)
+	xSQL[0] = xDrop
+	xSQL[1] = x
+	xSQL[2] = x1
+
+	return xSQL
 }
+
+// "tlmcontrolpanel.rveg_primary_keys"

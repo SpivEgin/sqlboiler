@@ -78,8 +78,10 @@ func (m *MockDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.ForeignKey,
 // TranslateColumnType converts a column to its "null." form if it is nullable
 func (m *MockDriver) TranslateColumnType(c bdb.Column) bdb.Column {
 	p := &PostgresDriver{}
+	//return p.TranslateColumnType(c)
 	return p.TranslateColumnType(c)
-}
+	}
+
 
 // PrimaryKeyInfo returns mock primary key info for the passed in table name
 func (m *MockDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.PrimaryKey, error) {

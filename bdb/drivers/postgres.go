@@ -25,16 +25,16 @@ type PostgresDriver struct {
 // returns a pointer to a PostgresDriver object. Note that it is required to
 // call PostgresDriver.Open() and PostgresDriver.Close() to open and close
 // the database connection once an object has been obtained.
-func NewPostgresDriver(user, pass, dbname, host string, port int, sslmode, sslkey, sslcert, sslrootcert string) *PostgresDriver {
+func NewPostgresDriver(user, pass, dbname, host string, port int, sslmode string) *PostgresDriver {
 	driver := PostgresDriver{
-		connStr: PostgresBuildQueryString(user, pass, dbname, host, port, sslmode, sslkey, sslcert, sslrootcert),
+		connStr: PostgresBuildQueryString(user, pass, dbname, host, port, sslmode),
 	}
 
 	return &driver
 }
 
 // PostgresBuildQueryString builds a query string.
-func PostgresBuildQueryString(user, pass, dbname, host string, port int, sslmode, sslkey, sslcert, sslrootcert string ) string {
+func PostgresBuildQueryString(user, pass, dbname, host string, port int, sslmode string) string {
 	parts := []string{}
 	if len(user) != 0 {
 		parts = append(parts, fmt.Sprintf("user=%s", user))
@@ -51,18 +51,10 @@ func PostgresBuildQueryString(user, pass, dbname, host string, port int, sslmode
 	if port != 0 {
 		parts = append(parts, fmt.Sprintf("port=%d", port))
 	}
-	if len(sslkey) != 0 {
-		parts = append(parts, fmt.Sprintf("sslkey=%s", sslkey))
-	}
-	if len(sslcert) != 0 {
-		parts = append(parts, fmt.Sprintf("sslcert=%s", sslcert))
-	}
-	if len(sslrootcert) != 0 {
-		parts = append(parts, fmt.Sprintf("sslrootcert=%s", sslrootcert))
-	}
 	if len(sslmode) != 0 {
 		parts = append(parts, fmt.Sprintf("sslmode=%s", sslmode))
 	}
+
 	return strings.Join(parts, " ")
 }
 
