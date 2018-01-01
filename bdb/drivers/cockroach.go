@@ -272,6 +272,7 @@ func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.Primary
 	from   information_schema.key_column_usage as kcu
 	where  constraint_name = $1
 		and table_schema = $2
+	limit 1
 	;`
 
 	var rows *sql.Rows
@@ -281,6 +282,8 @@ func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.Primary
 	defer rows.Close()
 	var col = ""
 	var columns []string
+	var xC = 0
+
 	for rows.Next() {
 		var column string
 
@@ -291,7 +294,6 @@ func (p *CockroachDriver) PrimaryKeyInfo(schema, tableName string) (*bdb.Primary
 		if col == "" {
 			col = column
 		}
-		var xC int
 		if column == "id" {
 			xC++
 		}
