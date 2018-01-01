@@ -226,6 +226,9 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 				//log.Printf("This is unique %v\n", unique)
 			}
 		}
+		if colName == "id" || colName == "ID" {
+			nullify = false
+		}
 
 		column := bdb.Column{
 			Name:     colName,
