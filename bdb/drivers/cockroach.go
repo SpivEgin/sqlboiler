@@ -235,7 +235,7 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 			Nullable: nullify,
 			Unique:   unique,
 		}
-		fmt.Printf("\n################ *** %v  *** ##################\n", nullify)
+		//fmt.Printf("\n################ *** %v  *** ##################\n", nullify)
 		columns = append(columns, column)
 	}
 	return columns, nil
