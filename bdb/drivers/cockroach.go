@@ -152,7 +152,7 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 	rows, err0 := p.dbConn.Query(`
 -- 	SET DATABASE "$1"
 	select x.column_name, x.column_type, x.column_default, x.udt_name, x.unique
-	from tlm_orm.rveg as x, tlm_orm.rveg_table as t
+	from ` + schema + `.rveg as x, ` + schema + `.rveg_table as t
 	where x.track_id = t.track and t.table_name = $1
  	;`, tableName)
 
