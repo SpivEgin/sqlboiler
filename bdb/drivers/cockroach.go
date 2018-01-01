@@ -91,7 +91,7 @@ func (m *CockroachDriver) UseTopClause() bool {
 	return false
 }
 func PrintName(name string) {
-	fmt.Printf("My Name is %v\n", name)
+	//fmt.Printf("My Name is %v\n", name)
 }
 func PrintInfo(name string, info []string ){
 
