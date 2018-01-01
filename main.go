@@ -221,7 +221,7 @@ func preRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if driverName == "cockroach" {
-		cmdConfig.Postgres = boilingcore.PostgresConfig{
+		cmdConfig.Cockroach = boilingcore.CockroachConfig{
 			User:    viper.GetString("cockroach.user"),
 			Pass:    viper.GetString("cockroach.pass"),
 			Host:    viper.GetString("cockroach.host"),
@@ -238,24 +238,24 @@ func preRun(cmd *cobra.Command, args []string) error {
 		// Set them manually
 		if cmdConfig.Postgres.SSLMode == "" {
 			cmdConfig.Postgres.SSLMode = "require"
-			viper.Set("postgres.sslmode", cmdConfig.Postgres.SSLMode)
+			viper.Set("cockroach.sslmode", cmdConfig.Postgres.SSLMode)
 		}
 
 		if cmdConfig.Postgres.Port == 0 {
 			cmdConfig.Postgres.Port = 26257
-			viper.Set("postgres.port", cmdConfig.Postgres.Port)
+			viper.Set("cockroach.port", cmdConfig.Postgres.Port)
 		}
 
 		if len(cmdConfig.Schema) == 0 {
-			cmdConfig.Schema = "public"
+			cmdConfig.Schema = ""
 		}
 
 		err = vala.BeginValidation().Validate(
-			vala.StringNotEmpty(cmdConfig.Postgres.User, "cockroach.user"),
-			vala.StringNotEmpty(cmdConfig.Postgres.Host, "cockroach.host"),
-			vala.Not(vala.Equals(cmdConfig.Postgres.Port, 0, "cockroach.port")),
-			vala.StringNotEmpty(cmdConfig.Postgres.DBName, "cockroach.dbname"),
-			vala.StringNotEmpty(cmdConfig.Postgres.SSLMode, "cockroach.sslmode"),
+			vala.StringNotEmpty(cmdConfig.Cockroach.User, "cockroach.user"),
+			vala.StringNotEmpty(cmdConfig.Cockroach.Host, "cockroach.host"),
+			vala.Not(vala.Equals(cmdConfig.Cockroach.Port, 0, "cockroach.port")),
+			vala.StringNotEmpty(cmdConfig.Cockroach.DBName, "cockroach.dbname"),
+			vala.StringNotEmpty(cmdConfig.Cockroach.SSLMode, "cockroach.sslmode"),
 		).Check()
 
 		if err != nil {

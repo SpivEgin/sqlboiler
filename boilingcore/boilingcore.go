@@ -291,15 +291,15 @@ func (s *State) initDriver(driverName string) error {
 	switch driverName {
 	case "cockroach":
 		s.Driver = drivers.NewCockroachDriver(
-			s.Config.Postgres.User,
-			s.Config.Postgres.Pass,
-			s.Config.Postgres.DBName,
-			s.Config.Postgres.Host,
-			s.Config.Postgres.Port,
-			s.Config.Postgres.SSLMode,
-			s.Config.Postgres.SSLKey,
-			s.Config.Postgres.SSLCert,
-			s.Config.Postgres.SSLRootCert,
+			s.Config.Cockroach.User,
+			s.Config.Cockroach.Pass,
+			s.Config.Cockroach.DBName,
+			s.Config.Cockroach.Host,
+			s.Config.Cockroach.Port,
+			s.Config.Cockroach.SSLMode,
+			s.Config.Cockroach.SSLKey,
+			s.Config.Cockroach.SSLCert,
+			s.Config.Cockroach.SSLRootCert,
 		)
 
 	case "postgres":

@@ -21,6 +21,7 @@ type Config struct {
 	Postgres PostgresConfig
 	MySQL    MySQLConfig
 	MSSQL    MSSQLConfig
+	Cockroach CockroachConfig
 }
 
 // PostgresConfig configures a postgres database

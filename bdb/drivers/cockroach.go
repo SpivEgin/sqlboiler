@@ -91,9 +91,11 @@ func (m *CockroachDriver) UseTopClause() bool {
 	return false
 }
 func PrintName(name string) {
-	//fmt.Printf("My Name is %v\n", name)
+	fmt.Printf("My Name is %v\n", name)
 }
+func PrintInfo(name string, info []string ){
 
+}
 // TableNames connects to the postgres database and
 // retrieves all table names from the information_schema where the
 // table schema is schema. It uses a whitelist and blacklist.
@@ -104,11 +106,8 @@ func (p *CockroachDriver) TableNames(schema string, whitelist, blacklist []strin
 		p.dbConn.Exec(xt[i])
 	}
 	var names []string
-	var q = `
-	select table_name from ` + schema + `.rveg_table
-		where table_schema = $1
-	`
-	query := fmt.Sprintf(q)
+
+	query := fmt.Sprintf(`select table_name from ` + schema + `.rveg_table where table_schema = $1`)
 	args := []interface{}{schema}
 	if len(whitelist) > 0 {
 		query += fmt.Sprintf(" and table_name in (%s);", strmangle.Placeholders(true, len(whitelist), 2, 1))
@@ -152,9 +151,9 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 
 	rows, err0 := p.dbConn.Query(`
 -- 	SET DATABASE "$1"
- 	select x.column_name, x.column_type, x.column_default, x.udt_name, x.unique
- 	from rveg as x, rveg_table as t
- 	where x.track_id = t.track_id and t.table_name = $1
+	select x.column_name, x.column_type, x.column_default, x.udt_name, x.unique
+	from tlm_orm.rveg as x, tlm_orm.rveg_table as t
+	where x.track_id = t.track and t.table_name = $1
  	;`, tableName)
 
 	rowsB, err1 := p.dbConn.Query(`
@@ -452,17 +451,18 @@ func conformCockroachDB(schema string) []string {
 		log.Panic("No database selected")
 	}
 	var xDrop = `
-	drop view if EXISTS ` + schema + `.rveg_is_null;
-	drop view if EXISTS ` + schema + `.rveg_primary_keys
-	drop table IF EXISTS ` + schema + `.rveg;
 	drop table IF EXISTS ` + schema + `.rveg_null;
-	drop TABLE IF EXISTS ` + schema + `.rveg_table;
+	drop view if EXISTS ` + schema + `.rveg_is_null;
+	drop view if EXISTS ` + schema + `.rveg_primary_keys;
+	drop view if EXISTS ` + schema + `.rveg_table;
+
+	drop table IF EXISTS ` + schema + `.rveg;
 	drop table if EXISTS ` + schema + `.rveg_unique;
 
-`
+	`
 	var x = `
 	CREATE TABLE ` + schema + `.rveg (
-	  column_name string,
+	column_name string,
 	  column_type string,
 	  column_default string,
 	  udt_name string,
@@ -471,15 +471,8 @@ func conformCockroachDB(schema string) []string {
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
 	CREATE TABLE ` + schema + `.rveg_null (
-	  COLUMN_NAME string,
+	COLUMN_NAME string,
 	  is_null string(3),
-	  track_id int not null,
-	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
-	);
-	CREATE TABLE ` + schema + `.rveg_table (
-	  "table_schema" string,
-	  "table_name" string,
-	  "table_type" string,
 	  track_id int not null,
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
@@ -491,15 +484,16 @@ func conformCockroachDB(schema string) []string {
 	  count_id int not null,
 	  id INT NOT NULL PRIMARY KEY DEFAULT unique_rowid()
 	);
-	
-	
-	INSERT INTO ` + schema + `.rveg_table (table_catalog, table_schema, table_name, version, table_type, track_id)
-	SELECT t.table_catalog, t.table_schema, t.table_name, t.table_type, t,version, row_number() OVER (ORDER by t.table_name) as track
+
+
+	CREATE VIEW ` + schema + `.rveg_table
+	AS
+	SELECT t.table_catalog, t.table_schema, t.table_name, t.table_type, t.version, row_number() OVER (ORDER by t.table_name) as track
 	FROM information_schema.tables as t
 	WHERE t.table_name not ilike 'rveg%' and  t.table_type = 'BASE TABLE' ;
-	
+
 	INSERT INTO ` + schema + `.rveg (column_name, column_type, column_default, udt_name, track_id)
-	select c.column_name as column_name, c.data_type as column_type, c.column_default as column_default, c.data_type as udt_name, tbl.track_id as track_id
+	select c.column_name as column_name, c.data_type as column_type, c.column_default as column_default, c.data_type as udt_name, tbl.track as track_id
 	FROM information_schema.columns as c, ` + schema + `.rveg_table as tbl
 	where c.table_name = tbl.table_name and c.table_schema = tbl.table_schema
 	;
@@ -507,29 +501,29 @@ func conformCockroachDB(schema string) []string {
 	select e.non_unique, e.table_name, e.column_name, row_number() OVER (ORDER by e.table_name) as count_id, e.table_schema
 	from information_schema.statistics as e
 	Where e.non_unique = false AND e.table_name not ilike 'rveg%';
-	
+
 	INSERT INTO ` + schema + `.rveg_null ( is_null, column_name, track_id )
-	select c.is_nullable, c.column_name, t.track_id
-	from information_schema.columns as c, rveg_table as t
+	select c.is_nullable, c.column_name, t.track
+	from information_schema.columns as c, ` + schema + `.rveg_table as t
 	Where c.is_nullable = 'YES' AND c.table_name not ilike 'rveg%'
-	  AND t.TABLE_schema = c.table_schema
-	  AND t.TABLE_NAME = c.table_name
+		  AND t.TABLE_schema = c.table_schema
+		  AND t.TABLE_NAME = c.table_name
 	;
 	UPDATE ` + schema + `.rveg as rt
 	SET column_default = ' '
 	WHERE rt.column_default is null;
-	
+
 	UPDATE ` + schema + `.rveg
 	SET "unique" = FALSE
 	`
 	var x1 = `
-		CREATE VIEW ` + schema + `.rveg_is_null
+	CREATE VIEW ` + schema + `.rveg_is_null
 	AS
 	select c.is_nullable, c.column_name, t.table_name, t.table_schema
-	from information_schema.columns as c, rveg_table as t
+	from information_schema.columns as c, ` + schema + `.rveg_table as t
 	Where c.table_name not ilike 'rveg%'
-	  AND t.TABLE_schema = c.table_schema
-	  AND t.TABLE_NAME = c.table_name
+		  AND t.TABLE_schema = c.table_schema
+		  AND t.TABLE_NAME = c.table_name
 	;
 	CREATE VIEW ` + schema + `.rveg_primary_keys
 	AS
@@ -538,6 +532,7 @@ func conformCockroachDB(schema string) []string {
 	WHERE k.constraint_name ilike '%primary%'
 		  or k.constraint_name ilike '%pkey%'
 	;
+
 
 	`
 	xSQL := make([]string, 3)
