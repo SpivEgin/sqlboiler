@@ -497,7 +497,7 @@ func (p *CockroachDriver) IsNull(table, column *string) bool {
 	}
 	//fmt.Printf("The type is %v\n", typ )
 	if typ == "YES"{
-		fmt.Printf("The type is %v\n", typ )
+		//fmt.Printf("The type is %v\n", typ )
 		return true
 	}
 	return false
