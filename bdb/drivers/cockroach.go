@@ -19,7 +19,7 @@ type CockroachDriver struct {
 	connStr string
 	dbConn  *sql.DB
 }
-
+var DbN string
 // NewCockroachDriver takes the database connection details as parameters and
 // returns a pointer to a CockroachDriver object. Note that it is required to
 // call CockroachDriver.Open() and CockroachDriver.Close() to open and close
@@ -106,7 +106,7 @@ func (p *CockroachDriver) TableNames(schema string, whitelist, blacklist []strin
 		p.dbConn.Exec(xt[i])
 	}
 	var names []string
-
+	DbN = schema
 	query := fmt.Sprintf(`select table_name from ` + schema + `.rveg_table where table_schema = $1`)
 	args := []interface{}{schema}
 	if len(whitelist) > 0 {
@@ -150,7 +150,7 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 	var columns []bdb.Column
 
 	rows, err0 := p.dbConn.Query(`
--- 	SET DATABASE "$1"
+-- 	SET DATABASE ` + schema + `;
 	select x.column_name, x.column_type, x.column_default, x.udt_name, x.unique
 	from ` + schema + `.rveg as x, ` + schema + `.rveg_table as t
 	where x.track_id = t.track and t.table_name = $1
@@ -164,14 +164,6 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 	;
 	`, tableName)
 
-	rowsC, err2 := p.dbConn.Query(`
--- 	SET DATABASE "$1"
- 	select x.column_name, x.table_name, x.is_nullable
- 	from rveg_is_null as x
- 	where x.table_name = $1 and x.table_schema = $2
-	;
-	`, tableName, schema)
-
 	if err0 != nil {
 		log.Printf("this is x0 %s \n", err0)
 
@@ -181,15 +173,10 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 		log.Printf("this is x1 %s \n", err1)
 
 	}
-	if err2 != nil {
-		log.Printf("this is x2 %s \n", err1)
-
-	}
 
 	defer rows.Close()
 	defer rowsB.Close()
-	defer rowsC.Close()
-	var nullify bool
+	var nulliy bool
 	for rows.Next() {
 		var colName, colType, udtName, defaultValue string
 		var arrayType *string
@@ -200,18 +187,6 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 			log.Printf("Row error\n")
 			log.Fatal(err)
 		}
-		for rowsC.Next() {
-			var colName1, xTableName, isNullable string
-			err := rowsC.Scan(&colName1, &xTableName, &isNullable)
-			// todo: check with fresh eyes
-			if err != nil {
-				log.Printf("RowC error: %s\n", err)
-			}
-			if isNullable == "YES" && colName1 == colName{
-				nullify = true
-			}
-		}
-
 		//cB := 0
 		for rowsB.Next() {
 			var colName1, xTableName string
@@ -225,17 +200,15 @@ func (p *CockroachDriver) Columns(schema, tableName string) ([]bdb.Column, error
 				unique = true
 				//log.Printf("This is unique %v\n", unique)
 			}
-		}
-		if colName == "id" || colName == "ID" {
-			nullify = false
-		}
 
+		}
+		nulliy = p.IsNull(&tableName, &colName)
 		column := bdb.Column{
 			Name:     colName,
 			DBType:   colType,
 			ArrType:  arrayType,
 			UDTName:  udtName,
-			Nullable: nullify,
+			Nullable: nulliy,
 			Unique:   unique,
 		}
 		//fmt.Printf("\n################ *** %v  *** ##################\n", nullify)
@@ -365,52 +338,14 @@ func (p *CockroachDriver) ForeignKeyInfo(schema, tableName string) ([]bdb.Foreig
 // as a Column object.
 func (p *CockroachDriver) TranslateColumnType(c bdb.Column) bdb.Column {
 	PrintName("TranslateColumnType")
-
-	if c.Nullable == true {
-		switch c.DBType {
-		case "INT", "SERIAL":
-			c.Type = "null.Int64"
-		case "DECIMAL", "FLOAT":
-			c.Type = "null.Float64"
-		case "INTERVAL", "STRING", "UUID", "COLLATE":
-			c.Type = "null.String"
-		case "BYTES":
-			c.Type = "null.Bytes"
-		case "BOOL":
-			c.Type = "null.Bool"
-		case "DATE", "TIMESTAMP":
-			c.Type = "null.Time"
-		case "ARRAY":
-			c.Type = getCockroachArrayType(c)
-			// Make DBType something like ARRAYinteger for parsing with randomize.Struct
-			c.DBType = c.DBType + *c.ArrType
-		default:
-			c.Type = "string"
-		}
-
+	//fmt.Println(c.Nullable)
+	if c.Nullable == true{
+		c.Type = typeConversionGoNull(c.DBType)
+	} else {
+		c.Type = typeConversionGo(c.DBType)
 	}
-	if c.Nullable == false {
-		switch c.DBType {
-		case "INT", "SERIAL":
-			c.Type = "int64"
-		case "DECIMAL", "FLOAT":
-			c.Type = "float64"
-		case "INTERVAL", "STRING", "UUID", "COLLATE":
-			c.Type = "string"
-		case "BYTES":
-			c.Type = "[]byte"
-		case "BOOL":
-			c.Type = "bool"
-		case "DATE", "TIMESTAMP":
-			c.Type = "time.Time"
-		case "ARRAY":
-			c.Type = getCockroachArrayType(c)
-			// Make DBType something like ARRAYinteger for parsing with randomize.Struct
-			c.DBType = c.DBType + *c.ArrType
-		default:
-			c.Type = "string"
-		}
-	}
+	PrintName("\n##")
+	PrintName(c.Type)
 
 	return c
 }
@@ -549,3 +484,115 @@ func conformCockroachDB(schema string) []string {
 }
 
 // "tlmcontrolpanel.rveg_primary_keys"
+func (p *CockroachDriver) IsNull(table, column *string) bool {
+
+	var typ string
+	err := p.dbConn.QueryRow(`
+	select c.is_nullable
+	From rveg_is_null as c
+	Where c.table_name='`+ *table +`' and c.column_name='`+ *column +`';
+	`).Scan(&typ)
+	if err != nil {
+		log.Println(err)
+	}
+	//fmt.Printf("The type is %v\n", typ )
+	if typ == "YES"{
+		fmt.Printf("The type is %v\n", typ )
+		return true
+	}
+	return false
+}
+func typeConversionGoNull(c string) string {
+	switch c {
+	case "INT", "SERIAL":
+		c = "null.Int64"
+	case "DECIMAL", "FLOAT":
+		c = "null.float64"
+	case "INTERVAL", "STRING", "UUID", "COLLATE":
+		c = "null.String"
+	case "BYTES":
+		c = "null.Bytes"
+	case "BOOL":
+		c = "null.Bool"
+	case "DATE", "TIMESTAMP":
+		c = "null.Time"
+	case "ARRAY":
+		c = "null.Bytes"
+	default:
+		c = "null.String"
+	}
+	return c
+}
+func typeConversionGo(c string) string {
+	switch c {
+	case "INT", "SERIAL":
+		c = "int64"
+	case "DECIMAL", "FLOAT":
+		c = "float64"
+	case "INTERVAL", "STRING", "UUID", "COLLATE":
+		c = "string"
+	case "BYTES":
+		c = "[]byte"
+	case "BOOL":
+		c = "bool"
+	case "DATE", "TIMESTAMP":
+		c = "time.Time"
+	case "ARRAY":
+		c = "[]byte"
+	default:
+		c = "string"
+	}
+	return c
+
+}
+/*
+var x bdb.Column
+x = c
+if c.Nullable != true {
+	switch c.DBType {
+	case "INT", "SERIAL":
+		x.Type = "null.Int64"
+	case "DECIMAL", "FLOAT":
+		x.Type = "null.Float64"
+	case "INTERVAL", "STRING", "UUID", "COLLATE":
+		x.Type = "null.String"
+	case "BYTES":
+		x.Type = "null.Bytes"
+	case "BOOL":
+		x.Type = "null.Bool"
+	case "DATE", "TIMESTAMP":
+		x.Type = "null.Time"
+	case "ARRAY":
+		x.Type = getCockroachArrayType(c)
+		// Make DBType something like ARRAYinteger for parsing with randomize.Struct
+		x.DBType = c.DBType + *c.ArrType
+	default:
+		x.Type = "string"
+	}
+
+}
+if c.Nullable  {
+	switch c.DBType {
+	case "INT", "SERIAL":
+		x.Type = "int64"
+	case "DECIMAL", "FLOAT":
+		x.Type = "float64"
+	case "INTERVAL", "STRING", "UUID", "COLLATE":
+		x.Type = "string"
+	case "BYTES":
+		x.Type = "[]byte"
+	case "BOOL":
+		x.Type = "bool"
+	case "DATE", "TIMESTAMP":
+		x.Type = "time.Time"
+	case "ARRAY":
+		x.Type = getCockroachArrayType(c)
+		// Make DBType something like ARRAYinteger for parsing with randomize.Struct
+		x.DBType = c.DBType + *c.ArrType
+	default:
+		x.Type = "string"
+	}
+}
+
+return x
+*/
